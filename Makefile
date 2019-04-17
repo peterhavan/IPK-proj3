@@ -1,4 +1,4 @@
 all: ipk-scan
 
-ipk-scan: scan.c
-	gcc scan.c -Wall -Wextra -o ipk-scan -g
+ipk-scan: ipk-scan.c
+	gcc ipk-scan.c -Wall -Wextra -o ipk-scan -g
