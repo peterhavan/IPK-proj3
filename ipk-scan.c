@@ -3,7 +3,7 @@
  * IPK projekt 2. *
  *  Peter Havan   *
  *   xhavan00     *
- *   ipk-scan.c     *
+ *   ipk-scan.c   *
 ***************************/
 
 #include <stdio.h>
@@ -17,21 +17,14 @@
 #include <stdbool.h>
 #include <netdb.h>
 #include <getopt.h>
+#include "ipk-scan.h"
 
 #define BUFSIZE 65535
-
-/* Function is called when error occurs
- * Prints msg to stderr, exits with code 1 */
-void errorMsg(char *msg)
-{
-	fprintf(stderr, "%s\n", msg);
-	exit(1);
-}
 
 int main(int argc, char* argv[])
 {
 	/* setting up variables
-	 * making sure every char* is ten to '\0' */
+	 * making sure every char* is set to '\0' */
 	//char option[2];
 	//int portNumber, optnumb = 0, clientSock, sent, recieved;
 	char c;
@@ -123,14 +116,6 @@ int main(int argc, char* argv[])
 			for (int i = 0; i <= (to-from); i++)
 				udpPortList[i] = from+i;
 
-			/*while (ptr != NULL)
-			{
-				//printf("'%s'\n", ptr);
-				udpPortList[index] = atoi(ptr);
-				ptr = strtok(NULL, "-");
-				index++;
-			}*/
-
 		}
 	}
 
@@ -158,14 +143,6 @@ int main(int argc, char* argv[])
 			int to = atoi(ptr);
 			for (int i = 0; i <= (to-from); i++)
 				tcpPortList[i] = from+i;
-			/*
-			char *ptr = strtok(SYN, "-");
-			while (ptr != NULL)
-			{
-				//printf("'%s'\n", ptr);
-				ptr = strtok(NULL, "-");
-			}*/
-
 		}
 	}
 
@@ -176,4 +153,26 @@ int main(int argc, char* argv[])
 	for (int i = 0; tcpPortList[i] > 0; i++)
 		printf("%d, ", tcpPortList[i]);
 	printf("\n");
+
+}
+
+/* Function is called when error occurs
+ * Prints msg to stderr, exits with code 1 */
+void errorMsg(char *msg)
+{
+	fprintf(stderr, "%s\n", msg);
+	exit(1);
+}
+
+/* function from https://www.tenouk.com/Module43a.html */
+unsigned short csum(unsigned short *buf, int nwords)
+{
+    unsigned long sum;
+    for(sum=0; nwords>0; nwords--)
+    {
+        sum += *buf++;	
+    }
+	sum = (sum >> 16) + (sum &0xffff);
+	sum += (sum >> 16);
+	return (unsigned short)(~sum);
 }
