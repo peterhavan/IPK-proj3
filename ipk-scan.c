@@ -32,14 +32,15 @@ int main(int argc, char* argv[])
 {
 	/* setting up variables
 	 * making sure every char* is ten to '\0' */
-	char option[2];
-	int portNumber, optnumb = 0, clientSock, sent, recieved;
+	//char option[2];
+	//int portNumber, optnumb = 0, clientSock, sent, recieved;
 	char c;
-	bool pu = false, pt = false, i = false, log = true;
+	bool pu = false, pt = false, i = false;
 	const char *hostName;
 	char *interface, *SYN, *UDP;
 	struct hostent *server;
-	int udpPortList[BUFSIZE], tcpPortList[BUFSIZE];
+	int udpPortList[BUFSIZE] = {-1};
+	int tcpPortList[BUFSIZE] = {-1};
 
 	//struct sockaddr_in serverAdd;
 	//char buffer[BUFSIZE];
@@ -69,9 +70,15 @@ int main(int argc, char* argv[])
 	    			printf(" with arg %s", optarg);
 	    		printf("\n");
 	    		if (!strcmp(long_options[option_index].name, "pu"))
+	    		{
 	   		 		UDP = strdup(optarg);
+	   		 		pu = true;
+	    		}
 	   		 	else
+	   		 	{
 	   		 		SYN = strdup(optarg);
+	   		 		pt = true;
+	   		 	}
 	    		break;
 
 	    	case 'i':
@@ -83,93 +90,90 @@ int main(int argc, char* argv[])
 	    }
 	}
 
-
-/*	while ((c = getopt(argc, argv, "i:p:")) != -1)
-	{
-		/* correct options / arguments */
-/*		switch (c)
-		{
-			case 'i':
-				interface = optarg;
-				i = true;
-				break;
-			case 'p':
-				printf("case p\n");
-				pu = true;
-				UDP = strdup(optarg);
-				printf(optarg);
-				printf("\n");
-				printf("end of case p\n");
-				break;
-			case 'pt':
-				pt = true;
-				SYN = optarg;
-				break;
-			default:
-				errorMsg("ERROR: Invalid options default");				
-			/* incorrect options / arguments
-			 * l has optional argument */
-/*			default:
-				switch (optopt)
-				{
-					case 'h':
-					case 'p':
-					case 'n':
-					case 'f':
-						errorMsg("Invalid options\n");
-						break;
-					case 'l':
-                        log = false;
-						strcat(option, "l");
-						optnumb += 1;
-						break;
-					default:
-						errorMsg("Invalid options\n");
-				}
-
-		}
-	}*/
-	
-
-
-
-	/* checking whether all required options were passed */
-	/*if (optnumb != 1 || !h || !p)
-		errorMsg("Invalid options\n");
-	/*
-
-
-
 	/* getting server adress */
 	hostName = argv[optind];
-
 	if ((server = gethostbyname(hostName)) == NULL)
 	{
 		char *tmp = "ERROR: no such host as ";
 		strcat(tmp, hostName);
-		//strcat(tmp, "\n");
 		errorMsg(tmp);
 	}
 	
-	printf("before if UDP\n");
-	if (UDP)
+	if (pu)
 	{
-		//char str[] = "strtok needs to be called several times to split a string";
-		//int init_size = strlen(str);
-		//char delim[] = "ai";
-		printf("before strstr\n");
+		int index = 0;
 		if (strstr(UDP, ",") != NULL)
 		{
-			printf("before strtok \n");
 			char *ptr = strtok(UDP, ",");
-			printf("before while \n");
 			while (ptr != NULL)
 			{
-				printf("'%s'\n", ptr);
+				//printf("'%s'\n", ptr);
+				udpPortList[index] = atoi(ptr);	
 				ptr = strtok(NULL, ",");
+				index++;
 			}
+		}
+
+		else if (strstr(UDP, "-") != NULL)
+		{
+			char *ptr = strtok(UDP, "-");
+			int from = atoi(ptr);
+			ptr = strtok(NULL, "-");
+			int to = atoi(ptr);
+			for (int i = 0; i <= (to-from); i++)
+				udpPortList[i] = from+i;
+
+			/*while (ptr != NULL)
+			{
+				//printf("'%s'\n", ptr);
+				udpPortList[index] = atoi(ptr);
+				ptr = strtok(NULL, "-");
+				index++;
+			}*/
+
 		}
 	}
 
+	if (pt)
+	{
+		int index = 0;
+		if (strstr(SYN, ",") != NULL)
+		{
+			char *ptr = strtok(SYN, ",");
+			while (ptr != NULL)
+			{
+				//printf("'%s'\n", ptr);
+				tcpPortList[index] = atoi(ptr);
+				ptr = strtok(NULL, ",");
+				index++;
+			}
+		}
 
+		else if (strstr(SYN, "-") != NULL)
+		{
+
+			char *ptr = strtok(SYN, "-");
+			int from = atoi(ptr);
+			ptr = strtok(NULL, "-");
+			int to = atoi(ptr);
+			for (int i = 0; i <= (to-from); i++)
+				tcpPortList[i] = from+i;
+			/*
+			char *ptr = strtok(SYN, "-");
+			while (ptr != NULL)
+			{
+				//printf("'%s'\n", ptr);
+				ptr = strtok(NULL, "-");
+			}*/
+
+		}
+	}
+
+	for (int i = 0; udpPortList[i] > 0; i++)
+		printf("%d, ", udpPortList[i]);
+	printf("\n");
+
+	for (int i = 0; tcpPortList[i] > 0; i++)
+		printf("%d, ", tcpPortList[i]);
+	printf("\n");
 }
