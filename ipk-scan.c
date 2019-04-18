@@ -45,7 +45,7 @@ int main(int argc, char* argv[])
 	 * making sure every char* is set to '\0' */
 	char c;
 	bool pu = false, pt = false, i = false;
-	const char *hostName;
+	const char *destinationName;
 	char *interface, *SYN, *UDP;
 	struct hostent *server;
 	int udpPortList[BUFSIZE] = {-1};
@@ -95,11 +95,11 @@ int main(int argc, char* argv[])
 	}
 
 	/* getting server adress */
-	hostName = argv[optind];
-	if ((server = gethostbyname(hostName)) == NULL)
+	destinationName = argv[optind];
+	if ((server = gethostbyname(destinationName)) == NULL)
 	{
 		char *tmp = "ERROR: no such host as ";
-		strcat(tmp, hostName);
+		strcat(tmp, destinationName);
 		errorMsg(tmp);
 	}
 	
@@ -168,34 +168,29 @@ int main(int argc, char* argv[])
 	//Create a raw socket
 	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 	
-	if(s == -1)
-	{
-		//socket creation failed, may be because of non-root privileges
-		perror("Failed to create socket");
-		exit(1);
-	}
+	if (s == -1)
+		errorMsg("ERROR: socket() failed");
 	
 	//packet to represent the packet
-	char packet[4096] , source_ip[32], *pseudogram;
+	char packet[PCKT_LEN] , source_ip[32], *pseudoPacket;
 	
 	//zero out the packet buffer
-	memset (packet, 0, 4096);
+	memset (packet, 0, PCKT_LEN);
 	
-	//IP header
 	struct iphdr *iph = (struct iphdr *) packet;
-	
-	//TCP header
 	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof (struct ip));
 	struct sockaddr_in sin;
 	struct pseudoTcpHeader psh;
 	
-	//Data part
-	
-	//some address resolution
-	strcpy(source_ip , "127.0.1.1");
+	//strcpy(source_ip, "127.0.1.1");
+	char hostBuffer[256];
+	int hostName = gethostname(hostBuffer, sizeof(hostBuffer));
+	struct hostent *hostInfo;
+	hostInfo = gethostbyname(hostBuffer);
+	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));
 	sin.sin_family = AF_INET;
 	sin.sin_port = htons(80);
-	sin.sin_addr.s_addr = inet_addr ("127.0.1.1");
+	sin.sin_addr.s_addr = inet_addr(destinationName);
 	
 	//Fill in the IP Header
 	iph->ihl = 5;
@@ -237,54 +232,40 @@ int main(int argc, char* argv[])
 	psh.tcpLen = htons(sizeof(struct tcphdr));
 	
 	int psize = sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr);
-	pseudogram = malloc(psize);
+	pseudoPacket = malloc(psize);
 	
-	memcpy(pseudogram , (char*) &psh , sizeof (struct pseudoTcpHeader));
-	memcpy(pseudogram + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
+	memcpy(pseudoPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
+	memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
 	
-	tcph->check = csum( (unsigned short*) pseudogram , psize);
+	tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
 
 	int one = 1;
 	const int *val = &one;
 
     // Inform the kernel do not fill up the headers' structure, we fabricated our own
     if(setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
-    {
-        perror("setsockopt() error");
-        exit(-1);
-    }
+        errorMsg("ERROR: setsockopt() failed");
     else
        printf("setsockopt() is OK\n");
 
-    printf("Using:::::Source IP: %s port: %u, Target IP: %s port: %u.\n", hostName, tcpPortList[0], hostName, tcpPortList[1]);
+    printf("Using:::::Source IP: %s port: %u, Target IP: %s port: %u.\n", destinationName, tcpPortList[0], destinationName, tcpPortList[1]);
 
     // sendto() loop, send every 2 second for 50 counts
     unsigned int count;
-    for(count = 0; count < 20; count++)
+    /*for(count = 0; count < 20; count++)
     {
     	if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-    	// Verify
-    	{
-			perror("sendto() error");
-			exit(-1);
-    	}
-
+			errorMsg("ERROR: sendto() failed");
     	else
 			printf("Count #%u - sendto() is OK\n", count);
 
     	sleep(2);
-    }
-	/*if(sendto(sd, buffer, ip->iph_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-	// Verify
-	{
-		perror("sendto() error");
-		exit(-1);
-	}
+    }*/
 
-	else
-		printf("Count #%u - sendto() is OK\n", count);*/
+    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+		errorMsg("ERROR: sendto() failed");
 
-    close(s);
+   //close(s);
 
 	char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
 	pcap_t *handle;                 // packet capture handle 
@@ -299,6 +280,7 @@ int main(int argc, char* argv[])
     	err(1,"Can't open input device");
 
 	// get IP address and mask of the sniffing interface
+	dev = "lo";
 	if (pcap_lookupnet(dev,&netaddr,&mask,errbuf) == -1)
     	err(1,"pcap_lookupnet() failed");
 
@@ -312,7 +294,7 @@ int main(int argc, char* argv[])
     	err(1,"pcap_open_live() failed");
 
 	// compile the filter
-	if (pcap_compile(handle,&fp,"port 23",0,netaddr) == -1)
+	if (pcap_compile(handle,&fp,"port 1234",0,netaddr) == -1)
     	err(1,"pcap_compile() failed");
   
 	// set the filter to the packet capture handle
@@ -321,6 +303,10 @@ int main(int argc, char* argv[])
 
   	// read packets from the interface in the infinite loop (count == -1)
   	// incoming packets are processed by function mypcap_handler() 
+
+    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+		errorMsg("ERROR: sendto() failed");
+
   	if (pcap_loop(handle,-1,mypcap_handler,NULL) == -1)
     	err(1,"pcap_loop() failed");
 
