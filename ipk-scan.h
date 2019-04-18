@@ -71,6 +71,15 @@ struct tcpheader
     unsigned short int tcph_urgptr;
 };
 
+struct pseudoTcpHeader
+{
+    unsigned int src;
+    unsigned int dst;
+    unsigned char res;   
+    unsigned char protocol;
+    unsigned short int tcpLen;
+};
+
 unsigned short csum(unsigned short *buf, int nwords);
 
 void errorMsg(char *msg);

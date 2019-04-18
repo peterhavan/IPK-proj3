@@ -40,6 +40,7 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 int main(int argc, char* argv[])
 {
+	printf("%zu\n\n", sizeof(struct tcpheader));
 	/* setting up variables
 	 * making sure every char* is set to '\0' */
 	//char option[2];
@@ -174,6 +175,7 @@ int main(int argc, char* argv[])
     int sd;
     // No data, just datagram
     char buffer[PCKT_LEN];
+    char psBuffer[PCKT_LEN];
 
     // The size of the headers
     struct ipheader *ip = (struct ipheader *) buffer;
@@ -182,6 +184,7 @@ int main(int argc, char* argv[])
     int one = 1;
     const int *val = &one;
     memset(buffer, 0, PCKT_LEN);
+    memset(psBuffer, 0, PCKT_LEN);
 	
 	/*if (argc != 5)
     {
@@ -209,13 +212,13 @@ int main(int argc, char* argv[])
     din.sin_port = htons(tcpPortList[1]);
 
     // Source IP, can be any, modify as needed
-    sin.sin_addr.s_addr = inet_addr(hostName);
+    sin.sin_addr.s_addr = inet_addr("127.0.1.1");
     din.sin_addr.s_addr = inet_addr(hostName);
 
     // IP structure
     ip->iph_ihl = 5;
     ip->iph_ver = 4;
-    ip->iph_tos = 16;
+    ip->iph_tos = 0;
     ip->iph_len = sizeof(struct ipheader) + sizeof(struct tcpheader);
     ip->iph_ident = htons(54321);
     ip->iph_offset = 0;
@@ -223,30 +226,48 @@ int main(int argc, char* argv[])
     ip->iph_protocol = 6; // TCP
     ip->iph_chksum = 0; // Done by kernel
 
-     
-
     // Source IP, modify as needed, spoofed, we accept through command line argument
-    ip->iph_sourceip = inet_addr(hostName);
+    ip->iph_sourceip = inet_addr("127.0.1.1");
 
     // Destination IP, modify as needed, but here we accept through command line argument
     ip->iph_destip = inet_addr(hostName);
 
+    //Pseudo TCP header for checksum
+    //struct ipheader *ip = (struct ipheader *) buffer;
+    //struct tcpheader *tcp = (struct tcpheader *) (buffer + sizeof(struct ipheader));
+    struct pseudoTcpHeader *pseTcp = (struct pseudoTcpHeader *) psBuffer;
+    struct tcpheader *tmpTcp = (struct tcpheader *) (psBuffer + sizeof(struct pseudoTcpHeader));
+    memcpy(tmpTcp, tcp, sizeof(struct tcpheader));
+    pseTcp->src = ip->iph_sourceip;
+    pseTcp->dst = ip->iph_destip;
+    pseTcp->res = 0;
+    pseTcp->protocol = ip->iph_protocol;
+    pseTcp->tcpLen = htons((sizeof(struct tcpheader)));
      
+     /*struct pseudoTcpHeader
+{
+    unsigned int src;
+    unsigned int dst;
+    unsigned char res;   
+    unsigned char protocol;
+    unsigned short int tcpLen;
+};*/
 
     // The TCP structure. The source port, spoofed, we accept through the command line
     tcp->tcph_srcport = htons(tcpPortList[0]);
     // The destination port, we accept through command line
     tcp->tcph_destport = htons(tcpPortList[1]);
-    tcp->tcph_seqnum = htonl(1);
+    tcp->tcph_seqnum = 0;
     tcp->tcph_acknum = 0;
     //tcp->tcph_offset = 5;
     tcp->tcph_hlen = 5;
     tcp->tcph_syn = 1;
     tcp->tcph_ack = 0;
     tcp->tcph_win = htons(32767);
-    //tcp->tcph_chksum = 0; // Done by kernel
-    tcp->tcph_chksum = csum((unsigned short *) tcp, sizeof(struct tcpheader));
+    tcp->tcph_chksum = 0; // Done by kernel
+    //tcp->tcph_chksum = csum((unsigned short *) tcp, sizeof(struct tcpheader));
     tcp->tcph_urgptr = 0;
+    tcp->tcph_chksum = csum((unsigned short *) psBuffer, (sizeof(struct tcpheader) + sizeof(struct pseudoTcpHeader)));
 
     // IP checksum calculation
     ip->iph_chksum = csum((unsigned short *) buffer, (sizeof(struct ipheader) + sizeof(struct tcpheader)));
