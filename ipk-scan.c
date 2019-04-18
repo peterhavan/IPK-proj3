@@ -96,12 +96,19 @@ int main(int argc, char* argv[])
 
 	/* getting server adress */
 	destinationName = argv[optind];
+	printf("destinationName: %s\n", destinationName);
 	if ((server = gethostbyname(destinationName)) == NULL)
 	{
 		char *tmp = "ERROR: no such host as ";
 		strcat(tmp, destinationName);
 		errorMsg(tmp);
 	}
+
+	//inet_ntoa(*((struct in_addr*) server->h_addr_list[0]));
+	struct in_addr addr;
+	memcpy(&addr, server->h_addr_list[0], sizeof(struct in_addr)); 
+	char destinationAddress[32];
+	strcpy(destinationAddress, inet_ntoa(addr));
 	
 	if (pu)
 	{
@@ -190,7 +197,9 @@ int main(int argc, char* argv[])
 	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));
 	sin.sin_family = AF_INET;
 	sin.sin_port = htons(80);
-	sin.sin_addr.s_addr = inet_addr(destinationName);
+	printf("BEFORE: destinationAddress: %s\n",destinationAddress);
+	sin.sin_addr.s_addr = inet_addr(destinationAddress);
+	printf("AFTER: destinationAddress: %s\n",destinationAddress);
 	
 	//Fill in the IP Header
 	iph->ihl = 5;
