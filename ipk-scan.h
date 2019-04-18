@@ -80,6 +80,7 @@ struct pseudoTcpHeader
     unsigned short int tcpLen;
 };
 
-unsigned short csum(unsigned short *buf, int nwords);
+//unsigned short csum(unsigned short *buf, int nwords);
+unsigned short csum(unsigned short *ptr,int nbytes);
 
 void errorMsg(char *msg);

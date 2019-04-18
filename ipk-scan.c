@@ -43,8 +43,6 @@ int main(int argc, char* argv[])
 	printf("%zu\n\n", sizeof(struct tcpheader));
 	/* setting up variables
 	 * making sure every char* is set to '\0' */
-	//char option[2];
-	//int portNumber, optnumb = 0, clientSock, sent, recieved;
 	char c;
 	bool pu = false, pt = false, i = false;
 	const char *hostName;
@@ -52,11 +50,6 @@ int main(int argc, char* argv[])
 	struct hostent *server;
 	int udpPortList[BUFSIZE] = {-1};
 	int tcpPortList[BUFSIZE] = {-1};
-
-	//struct sockaddr_in serverAdd;
-	//char buffer[BUFSIZE];
-	//bzero(option, 2);
-	//bzero(login, BUFSIZE);
 	
 	/* checking arguments */
 	if (argc < 2)
@@ -172,108 +165,90 @@ int main(int argc, char* argv[])
 		printf("%d, ", tcpPortList[i]);
 	printf("\n");
 
-    int sd;
-    // No data, just datagram
-    char buffer[PCKT_LEN];
-    char psBuffer[PCKT_LEN];
-
-    // The size of the headers
-    struct ipheader *ip = (struct ipheader *) buffer;
-    struct tcpheader *tcp = (struct tcpheader *) (buffer + sizeof(struct ipheader));
-    struct sockaddr_in sin, din;
-    int one = 1;
-    const int *val = &one;
-    memset(buffer, 0, PCKT_LEN);
-    memset(psBuffer, 0, PCKT_LEN);
+	//Create a raw socket
+	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 	
-	/*if (argc != 5)
-    {
-    	printf("- Invalid parameters!!!\n");
-    	printf("- Usage: %s <source hostname/IP> <source port> <target hostname/IP> <target port>\n", argv[0]);
-    	exit(-1);
-    }*/    
+	if(s == -1)
+	{
+		//socket creation failed, may be because of non-root privileges
+		perror("Failed to create socket");
+		exit(1);
+	}
+	
+	//packet to represent the packet
+	char packet[4096] , source_ip[32], *pseudogram;
+	
+	//zero out the packet buffer
+	memset (packet, 0, 4096);
+	
+	//IP header
+	struct iphdr *iph = (struct iphdr *) packet;
+	
+	//TCP header
+	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof (struct ip));
+	struct sockaddr_in sin;
+	struct pseudoTcpHeader psh;
+	
+	//Data part
+	
+	//some address resolution
+	strcpy(source_ip , "127.0.1.1");
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(80);
+	sin.sin_addr.s_addr = inet_addr ("127.0.1.1");
+	
+	//Fill in the IP Header
+	iph->ihl = 5;
+	iph->version = 4;
+	iph->tos = 0;
+	iph->tot_len = sizeof (struct iphdr) + sizeof (struct tcphdr);
+	iph->id = htonl (54321);	//Id of this packet
+	iph->frag_off = 0;
+	iph->ttl = 255;
+	iph->protocol = IPPROTO_TCP;
+	iph->check = 0;		//Set to 0 before calculating checksum
+	iph->saddr = inet_addr ( source_ip );	//Spoof the source ip address
+	iph->daddr = sin.sin_addr.s_addr;
+	
+	//Ip checksum
+	iph->check = csum ((unsigned short *) packet, iph->tot_len);
+	
+	//TCP Header
+	tcph->source = htons (1234);
+	tcph->dest = htons (80);
+	tcph->seq = 0;
+	tcph->ack_seq = 0;
+	tcph->doff = 5;	//tcp header size
+	tcph->fin=0;
+	tcph->syn=1;
+	tcph->rst=0;
+	tcph->psh=0;
+	tcph->ack=0;
+	tcph->urg=0;
+	tcph->window = htons (5840);	/* maximum allowed window size */
+	tcph->check = 0;	//leave checksum 0 now, filled later by pseudo header
+	tcph->urg_ptr = 0;
+	
+	//Now the TCP checksum
+	psh.src = inet_addr( source_ip );
+	psh.dst = sin.sin_addr.s_addr;
+	psh.res = 0;
+	psh.protocol = IPPROTO_TCP;
+	psh.tcpLen = htons(sizeof(struct tcphdr));
+	
+	int psize = sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr);
+	pseudogram = malloc(psize);
+	
+	memcpy(pseudogram , (char*) &psh , sizeof (struct pseudoTcpHeader));
+	memcpy(pseudogram + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
+	
+	tcph->check = csum( (unsigned short*) pseudogram , psize);
 
-    sd = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
-    if(sd < 0)
-    {
-       perror("socket() error");
-       exit(-1);
-    }
-    else
-    	printf("socket()-SOCK_RAW and tcp protocol is OK.\n");  
-
-    // The source is redundant, may be used later if needed
-    // Address family
-    sin.sin_family = AF_INET;
-    din.sin_family = AF_INET;
-
-    // Source port, can be any, modify as needed
-    sin.sin_port = htons(tcpPortList[0]);
-    din.sin_port = htons(tcpPortList[1]);
-
-    // Source IP, can be any, modify as needed
-    sin.sin_addr.s_addr = inet_addr("127.0.1.1");
-    din.sin_addr.s_addr = inet_addr(hostName);
-
-    // IP structure
-    ip->iph_ihl = 5;
-    ip->iph_ver = 4;
-    ip->iph_tos = 0;
-    ip->iph_len = sizeof(struct ipheader) + sizeof(struct tcpheader);
-    ip->iph_ident = htons(54321);
-    ip->iph_offset = 0;
-    ip->iph_ttl = 64;
-    ip->iph_protocol = 6; // TCP
-    ip->iph_chksum = 0; // Done by kernel
-
-    // Source IP, modify as needed, spoofed, we accept through command line argument
-    ip->iph_sourceip = inet_addr("127.0.1.1");
-
-    // Destination IP, modify as needed, but here we accept through command line argument
-    ip->iph_destip = inet_addr(hostName);
-
-    //Pseudo TCP header for checksum
-    //struct ipheader *ip = (struct ipheader *) buffer;
-    //struct tcpheader *tcp = (struct tcpheader *) (buffer + sizeof(struct ipheader));
-    struct pseudoTcpHeader *pseTcp = (struct pseudoTcpHeader *) psBuffer;
-    struct tcpheader *tmpTcp = (struct tcpheader *) (psBuffer + sizeof(struct pseudoTcpHeader));
-    memcpy(tmpTcp, tcp, sizeof(struct tcpheader));
-    pseTcp->src = ip->iph_sourceip;
-    pseTcp->dst = ip->iph_destip;
-    pseTcp->res = 0;
-    pseTcp->protocol = ip->iph_protocol;
-    pseTcp->tcpLen = htons((sizeof(struct tcpheader)));
-     
-     /*struct pseudoTcpHeader
-{
-    unsigned int src;
-    unsigned int dst;
-    unsigned char res;   
-    unsigned char protocol;
-    unsigned short int tcpLen;
-};*/
-
-    // The TCP structure. The source port, spoofed, we accept through the command line
-    tcp->tcph_srcport = htons(tcpPortList[0]);
-    // The destination port, we accept through command line
-    tcp->tcph_destport = htons(tcpPortList[1]);
-    tcp->tcph_seqnum = 0;
-    tcp->tcph_acknum = 0;
-    //tcp->tcph_offset = 5;
-    tcp->tcph_hlen = 5;
-    tcp->tcph_syn = 1;
-    tcp->tcph_ack = 0;
-    tcp->tcph_win = htons(32767);
-    tcp->tcph_chksum = 0; // Done by kernel
-    //tcp->tcph_chksum = csum((unsigned short *) tcp, sizeof(struct tcpheader));
-    tcp->tcph_urgptr = 0;
-    tcp->tcph_chksum = csum((unsigned short *) psBuffer, (sizeof(struct tcpheader) + sizeof(struct pseudoTcpHeader)));
-
-    // IP checksum calculation
-    ip->iph_chksum = csum((unsigned short *) buffer, (sizeof(struct ipheader) + sizeof(struct tcpheader)));
+	int one = 1;
+	const int *val = &one;
 
     // Inform the kernel do not fill up the headers' structure, we fabricated our own
-    if(setsockopt(sd, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
+    if(setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
     {
         perror("setsockopt() error");
         exit(-1);
@@ -287,7 +262,7 @@ int main(int argc, char* argv[])
     unsigned int count;
     for(count = 0; count < 20; count++)
     {
-    	if(sendto(sd, buffer, ip->iph_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+    	if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
     	// Verify
     	{
 			perror("sendto() error");
@@ -309,7 +284,7 @@ int main(int argc, char* argv[])
 	else
 		printf("Count #%u - sendto() is OK\n", count);*/
 
-    close(sd);
+    close(s);
 
 	char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
 	pcap_t *handle;                 // packet capture handle 
@@ -435,15 +410,24 @@ void errorMsg(char *msg)
 	exit(1);
 }
 
-/* function from https://www.tenouk.com/Module43a.html */
-unsigned short csum(unsigned short *buf, int nwords)
+unsigned short csum(unsigned short *ptr,int nbytes) 
 {
-    unsigned long sum;
-    for(sum=0; nwords>0; nwords--)
-    {
-        sum += *buf++;	
-    }
-	sum = (sum >> 16) + (sum &0xffff);
-	sum += (sum >> 16);
-	return (unsigned short)(~sum);
+	long sum = 0;
+	unsigned short oddbyte;
+	short answer;
+	while(nbytes>1) {
+		sum+=*ptr++;
+		nbytes-=2;
+	}
+	if(nbytes==1) {
+		oddbyte=0;
+		*((u_char*)&oddbyte)=*(u_char*)ptr;
+		sum+=oddbyte;
+	}
+
+	sum = (sum>>16)+(sum & 0xffff);
+	sum += (sum>>16);
+	answer=(short)~sum;
+	
+	return(answer);
 }
