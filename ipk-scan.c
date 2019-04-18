@@ -26,6 +26,7 @@
 #include <err.h>
 #include <pcap.h>
 #include <errno.h>
+#include <signal.h>
 #include "ipk-scan.h"
 
 #define BUFSIZE 65535
@@ -35,6 +36,7 @@
 #endif
 #define SIZE_ETHERNET (14)       // offset of Ethernet header to L3 protocol
 int n = 0;
+pcap_t *handle;
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 
@@ -269,13 +271,13 @@ int main(int argc, char* argv[])
     	sleep(2);
     }*/
 
-    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-		errorMsg("ERROR: sendto() failed");
+    /*if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+		errorMsg("ERROR: sendto() failed");*/
 
    //close(s);
 
 	char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
-	pcap_t *handle;                 // packet capture handle 
+	//pcap_t *handle;                 // packet capture handle 
 	char *dev;                      // input device
 	struct in_addr a,b;
 	bpf_u_int32 netaddr;            // network address configured at the input device
@@ -311,6 +313,9 @@ int main(int argc, char* argv[])
 
   	// read packets from the interface in the infinite loop (count == -1)
   	// incoming packets are processed by function mypcap_handler() 
+
+    signal(SIGALRM, signalarmHandler);   
+    alarm(10);                         
 
     if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
 		errorMsg("ERROR: sendto() failed");
@@ -395,6 +400,12 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
   } 
 }
 
+void signalarmHandler(int sig)
+{
+	printf("recievedSignal\n");
+	pcap_breakloop(handle);
+	printf("breakloop called\n");
+}
 
 /* Function is called when error occurs
  * Prints msg to stderr, exits with code 1 */
