@@ -40,7 +40,6 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 int main(int argc, char* argv[])
 {
-	printf("%zu\n\n", sizeof(struct tcpheader));
 	/* setting up variables
 	 * making sure every char* is set to '\0' */
 	char c;
@@ -86,7 +85,8 @@ int main(int argc, char* argv[])
 	    		break;
 
 	    	case 'i':
-	    		printf("option i\n");
+	    		i = true;
+	    		interface = strdup(optarg);
 	    		break;
 
 	    	default:
@@ -197,9 +197,7 @@ int main(int argc, char* argv[])
 	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));
 	sin.sin_family = AF_INET;
 	sin.sin_port = htons(80);
-	printf("BEFORE: destinationAddress: %s\n",destinationAddress);
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
-	printf("AFTER: destinationAddress: %s\n",destinationAddress);
 	
 	//Fill in the IP Header
 	iph->ihl = 5;
@@ -285,11 +283,12 @@ int main(int argc, char* argv[])
 	struct bpf_program fp;          // the compiled filter
 
 	// open the device to sniff data
-	if ((dev = pcap_lookupdev(errbuf)) == NULL)
+	if (i)
+		dev = interface;
+	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
     	err(1,"Can't open input device");
 
 	// get IP address and mask of the sniffing interface
-	dev = "lo";
 	if (pcap_lookupnet(dev,&netaddr,&mask,errbuf) == -1)
     	err(1,"pcap_lookupnet() failed");
 
