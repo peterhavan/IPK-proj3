@@ -358,17 +358,20 @@ int main(int argc, char* argv[])
 	    	err(1,"pcap_loop() failed");
 	}
 
+	iph->protocol = IPPROTO_UDP;
+	iph->tot_len = sizeof (struct iphdr) + sizeof(struct udphdr);
+	iph->check = csum ((unsigned short *) packet, iph->tot_len);
 	char *pseudoUdpPacket;
-	struct udphdr *udph = (struct udphdr *) (packet + sizeof(struct ip));
+	struct udphdr *udph = (struct udphdr *) (packet + sizeof(struct iphdr));
 	memset(udph, 0, PCKT_LEN - sizeof(struct iphdr));
-	udph->uh_sport = htons (1234);
-	//udph->uh_dport = 
-	udph->uh_ulen = sizeof(struct udphdr);
-	//udph->uh_sum =
+	udph->uh_sport = htons (1234); 
+	udph->uh_ulen = htons(sizeof(struct udphdr));
 
 	psize = sizeof(struct pseudoTcpHeader) + sizeof(struct udphdr);
 	pseudoUdpPacket = malloc(psize);
 	
+	psh.protocol = IPPROTO_UDP;
+	psh.tcpLen = htons(sizeof(struct udphdr));
 	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
 
 	for (int i = 0; udpPortList[i] > 0; i++)
