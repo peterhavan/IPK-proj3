@@ -14,7 +14,7 @@
 #include <netinet/udp.h>
 
 
-struct pseudoTcpHeader
+struct pseudoHeader
 {
     unsigned int src;
     unsigned int dst;

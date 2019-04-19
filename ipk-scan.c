@@ -186,7 +186,7 @@ int main(int argc, char* argv[])
 	struct iphdr *iph = (struct iphdr *) packet;
 	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof(struct ip));
 	struct sockaddr_in sin;
-	struct pseudoTcpHeader psh;
+	struct pseudoHeader psh;
 	
 	if (iFlag)
 		dev = interface;
@@ -245,10 +245,10 @@ int main(int argc, char* argv[])
 	psh.protocol = IPPROTO_TCP;
 	psh.tcpLen = htons(sizeof(struct tcphdr));
 	
-	int psize = sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr);
+	int psize = sizeof(struct pseudoHeader) + sizeof(struct tcphdr);
 	pseudoTcpPacket = malloc(psize);
 	
-	memcpy(pseudoTcpPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
+	memcpy(pseudoTcpPacket , (char*) &psh , sizeof (struct pseudoHeader));
 
 	int one = 1;
 	const int *val = &one;
@@ -287,8 +287,8 @@ int main(int argc, char* argv[])
 		tcph->dest = htons (tcpPortList[tcpCount]);
 
 		tcph->check = 0;
-		memcpy(pseudoTcpPacket + sizeof(struct pseudoTcpHeader), tcph ,sizeof(struct tcphdr));
-    	tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
+		memcpy(pseudoTcpPacket + sizeof(struct pseudoHeader), tcph ,sizeof(struct tcphdr));
+    	tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoHeader) + sizeof(struct tcphdr)));
 
 	    signal(SIGALRM, signalalarmTcpHandler);   
 	    alarm(3);
@@ -310,12 +310,12 @@ int main(int argc, char* argv[])
 	udph->uh_sport = htons (1234); 
 	udph->uh_ulen = htons(sizeof(struct udphdr));
 
-	psize = sizeof(struct pseudoTcpHeader) + sizeof(struct udphdr);
+	psize = sizeof(struct pseudoHeader) + sizeof(struct udphdr);
 	pseudoUdpPacket = malloc(psize);
 	
 	psh.protocol = IPPROTO_UDP;
 	psh.tcpLen = htons(sizeof(struct udphdr));
-	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
+	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoHeader));
 
 	// compile the filter
 	if (pcap_compile(handle,&fp,"icmp",0,netaddr) == -1)
@@ -331,8 +331,8 @@ int main(int argc, char* argv[])
 		udph->uh_dport = htons(udpPortList[i]);
 		udph->uh_sum = 0;
 
-		memcpy(pseudoUdpPacket + sizeof(struct pseudoTcpHeader), udph, sizeof(struct udphdr));
-    	udph->uh_sum = csum((unsigned short*) pseudoUdpPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct udphdr)));
+		memcpy(pseudoUdpPacket + sizeof(struct pseudoHeader), udph, sizeof(struct udphdr));
+    	udph->uh_sum = csum((unsigned short*) pseudoUdpPacket, (sizeof(struct pseudoHeader) + sizeof(struct udphdr)));
 
     	signal(SIGALRM, signalalarmUdpHandler);   
 	    alarm(3);
@@ -351,7 +351,6 @@ int main(int argc, char* argv[])
   	pcap_close(handle);
   	free(pseudoUdpPacket);
   	free(pseudoTcpPacket);
-
     return 0;
 }
 
@@ -478,24 +477,26 @@ void reset() {
   printf("\033[0m");
 }
 
-unsigned short csum(unsigned short *ptr,int nbytes) 
+//correct csum function, the one used in project recommended references had unexpected behaviour
+//function borrowed from https://www.binarytides.com/tcp-syn-portscan-in-c-with-linux-sockets/ example
+unsigned short csum(unsigned short *ptr, int nbytes) 
 {
 	long sum = 0;
 	unsigned short oddbyte;
 	short answer;
-	while(nbytes>1) {
+	while(nbytes>1) 
+	{
 		sum+=*ptr++;
 		nbytes-=2;
 	}
-	if(nbytes==1) {
+	if(nbytes==1) 
+	{
 		oddbyte=0;
 		*((u_char*)&oddbyte)=*(u_char*)ptr;
 		sum+=oddbyte;
 	}
-
 	sum = (sum>>16)+(sum & 0xffff);
 	sum += (sum>>16);
 	answer=(short)~sum;
-	
 	return(answer);
 }
