@@ -35,8 +35,11 @@
 #define PCAP_ERRBUF_SIZE (256)
 #endif
 #define SIZE_ETHERNET (14)       // offset of Ethernet header to L3 protocol
+
 int n = 0;
 pcap_t *handle;
+int currentDstPort = -1;
+
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 
@@ -98,7 +101,7 @@ int main(int argc, char* argv[])
 
 	/* getting server adress */
 	destinationName = argv[optind];
-	printf("destinationName: %s\n", destinationName);
+	//printf("destinationName: %s\n", destinationName);
 	if ((server = gethostbyname(destinationName)) == NULL)
 	{
 		char *tmp = "ERROR: no such host as ";
@@ -147,7 +150,7 @@ int main(int argc, char* argv[])
 			char *ptr = strtok(SYN, ",");
 			while (ptr != NULL)
 			{
-				//printf("'%s'\n", ptr);
+				printf("'%s'\n", ptr);
 				tcpPortList[index] = atoi(ptr);
 				ptr = strtok(NULL, ",");
 				index++;
@@ -166,13 +169,13 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	for (int i = 0; udpPortList[i] > 0; i++)
+	/*for (int i = 0; udpPortList[i] > 0; i++)
 		printf("%d, ", udpPortList[i]);
 	printf("\n");
 
 	for (int i = 0; tcpPortList[i] > 0; i++)
 		printf("%d, ", tcpPortList[i]);
-	printf("\n");
+	printf("\n");*/
 
 	//Create a raw socket
 	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
@@ -193,14 +196,15 @@ int main(int argc, char* argv[])
 	
 	//strcpy(source_ip, "127.0.1.1");
 	char hostBuffer[256];
-	int hostName = gethostname(hostBuffer, sizeof(hostBuffer));
+	gethostname(hostBuffer, sizeof(hostBuffer));
 	struct hostent *hostInfo;
 	hostInfo = gethostbyname(hostBuffer);
 	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));
 	sin.sin_family = AF_INET;
-	sin.sin_port = htons(80);
+	//sin.sin_port = htons(80);
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
 	
+	int ID = 54321;
 	//Fill in the IP Header
 	iph->ihl = 5;
 	iph->version = 4;
@@ -219,7 +223,7 @@ int main(int argc, char* argv[])
 	
 	//TCP Header
 	tcph->source = htons (1234);
-	tcph->dest = htons (80);
+	//tcph->dest = htons (80);
 	tcph->seq = 0;
 	tcph->ack_seq = 0;
 	tcph->doff = 5;	//tcp header size
@@ -244,9 +248,9 @@ int main(int argc, char* argv[])
 	pseudoPacket = malloc(psize);
 	
 	memcpy(pseudoPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
-	memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
+	//memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
 	
-	tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
+	//tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
 
 	int one = 1;
 	const int *val = &one;
@@ -254,13 +258,13 @@ int main(int argc, char* argv[])
     // Inform the kernel do not fill up the headers' structure, we fabricated our own
     if(setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
         errorMsg("ERROR: setsockopt() failed");
-    else
-       printf("setsockopt() is OK\n");
+    //else
+     //  printf("setsockopt() is OK\n");
 
-    printf("Using:::::Source IP: %s port: %u, Target IP: %s port: %u.\n", destinationName, tcpPortList[0], destinationName, tcpPortList[1]);
+    //printf("Using:::::Source IP: %s port: %u, Target IP: %s port: %u.\n", destinationName, tcpPortList[0], destinationName, tcpPortList[1]);
 
     // sendto() loop, send every 2 second for 50 counts
-    unsigned int count;
+    //unsigned int count;
     /*for(count = 0; count < 20; count++)
     {
     	if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
@@ -279,7 +283,7 @@ int main(int argc, char* argv[])
 	char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
 	//pcap_t *handle;                 // packet capture handle 
 	char *dev;                      // input device
-	struct in_addr a,b;
+	//struct in_addr a,b;
 	bpf_u_int32 netaddr;            // network address configured at the input device
 	bpf_u_int32 mask;               // network mask of the input device
 	struct bpf_program fp;          // the compiled filter
@@ -294,10 +298,10 @@ int main(int argc, char* argv[])
 	if (pcap_lookupnet(dev,&netaddr,&mask,errbuf) == -1)
     	err(1,"pcap_lookupnet() failed");
 
-	a.s_addr=netaddr;
-	printf("Opening interface \"%s\" with net address %s,",dev,inet_ntoa(a));
-	b.s_addr=mask;
-	printf("mask %s for listening...\n",inet_ntoa(b));
+	//a.s_addr=netaddr;
+	//printf("Opening interface \"%s\" with net address %s,",dev,inet_ntoa(a));
+	//b.s_addr=mask;
+	//printf("mask %s for listening...\n",inet_ntoa(b));
 
 	// open the interface for live sniffing
 	if ((handle = pcap_open_live(dev,BUFSIZ,1,1000,errbuf)) == NULL)
@@ -312,17 +316,34 @@ int main(int argc, char* argv[])
     	err(1,"pcap_setfilter() failed");
 
   	// read packets from the interface in the infinite loop (count == -1)
-  	// incoming packets are processed by function mypcap_handler() 
+  	// incoming packets are processed by function mypcap_handler()
 
-    signal(SIGALRM, signalarmHandler);   
-    alarm(10);                         
+    printf("PORT\t\tSTATE\n");
 
-    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-		errorMsg("ERROR: sendto() failed");
+    for (int i = 0; tcpPortList[i] > 0; i++)
+    {
+    	//printf("tcpPortList[i] = %d\n", tcpPortList[i]);
+    	//iph->id = htonl (ID++);
+    	//iph->check = csum ((unsigned short *) packet, iph->tot_len);
+    	sin.sin_port = htons(tcpPortList[i]);
+		tcph->dest = htons (tcpPortList[i]);
 
-  	if (pcap_loop(handle,-1,mypcap_handler,NULL) == -1)
-    	err(1,"pcap_loop() failed");
+		tcph->check = 0;
+		memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader), tcph ,sizeof(struct tcphdr));
+    	tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
 
+	    signal(SIGALRM, signalarmTcpHandler);   
+	    alarm(10);
+
+		//tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));             
+
+	    currentDstPort = tcpPortList[i];
+	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+			errorMsg("ERROR: sendto() failed");
+
+	  	if (pcap_loop(handle, -1, mypcap_handler, NULL) == -1)
+	    	err(1,"pcap_loop() failed");
+	}
   	// close the capture device and deallocate resources
   	pcap_close(handle);
 
@@ -332,20 +353,71 @@ int main(int argc, char* argv[])
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
-  struct ip *my_ip;               // pointer to the beginning of IP header
-  struct ether_header *eptr;      // pointer to the beginning of Ethernet header
-  const struct tcphdr *my_tcp;    // pointer to the beginning of TCP header
-  const struct udphdr *my_udp;    // pointer to the beginning of UDP header
-  u_int size_ip;
+	struct ip *my_ip;               // pointer to the beginning of IP header
+	//struct ether_header *eptr;      // pointer to the beginning of Ethernet header
+	const struct tcphdr *my_tcp;    // pointer to the beginning of TCP header
+	const struct udphdr *my_udp;    // pointer to the beginning of UDP header
+	u_int size_ip;
 
-  n++;
-  // print the packet header data
-  printf("Packet no. %d:\n",n);
-  printf("\tLength %d, received at %s",header->len,ctime((const time_t*)&header->ts.tv_sec));  
-  //    printf("Ethernet address length is %d\n",ETHER_HDR_LEN);
+    n++;
+    // print the packet header data
+    //printf("Packet no. %d:\n",n);
+  	//printf("\tLength %d, received at %s",header->len,ctime((const time_t*)&header->ts.tv_sec));  
+    // printf("Ethernet address length is %d\n",ETHER_HDR_LEN);
   
-  // read the Ethernet header
-  eptr = (struct ether_header *) packet;
+    // read the Ethernet header
+    //eptr = (struct ether_header *) packet;
+    my_ip = (struct ip*) (packet+SIZE_ETHERNET);
+   	size_ip = my_ip->ip_hl*4;
+    if (my_ip->ip_p == 6)
+    {
+    	my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
+    	//printf("\tSrc port = %d, dst port = %d, seq = %u",ntohs(my_tcp->th_sport), ntohs(my_tcp->th_dport), ntohl(my_tcp->th_seq));
+    	//printf ("tcp/%d", ntohs(my_tcp->th_dport));
+
+		/*if (my_tcp->th_flags & TH_SYN)
+			printf(", SYN");
+		if (my_tcp->th_flags & TH_FIN)
+			printf(", FIN");
+		if (my_tcp->th_flags & TH_RST)
+			printf(", RST");
+		if (my_tcp->th_flags & TH_PUSH)
+			printf(", PUSH");
+		if (my_tcp->th_flags & TH_ACK)
+			printf(", ACK");*/
+    	if (currentDstPort == ntohs(my_tcp->th_sport))
+    	{
+	    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
+	    	{
+	    		if (ntohs(my_tcp->th_sport) > 999)
+	      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
+	      		else
+	      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+	      		printf("open\n");
+				//printf("\n");
+	      		alarm(0);
+	      		pcap_breakloop(handle);
+	      	}
+
+	      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK))
+	      	{
+	      		if (ntohs(my_tcp->th_sport) > 999)
+	      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
+	      		else
+	      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+	      		printf("closed\n");
+	      		alarm(0);
+	      		pcap_breakloop(handle);
+	      	}
+      	}
+
+      	/*else
+      		//printf("\n");
+      		alarm(0);
+      		pcap_breakloop(handle);*/
+      	//pcap_breakloop(handle);
+    }
+/*
   printf("\tSource MAC: %s\n",ether_ntoa((const struct ether_addr *)&eptr->ether_shost)) ;
   printf("\tDestination MAC: %s\n",ether_ntoa((const struct ether_addr *)&eptr->ether_dhost)) ;
   
@@ -397,10 +469,10 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     break;
   default:
     printf("\tEthernet type 0x%x, not IPv4\n", ntohs(eptr->ether_type));
-  } 
+  }*/ 
 }
 
-void signalarmHandler(int sig)
+void signalarmTcpHandler()
 {
 	printf("recievedSignal\n");
 	pcap_breakloop(handle);
