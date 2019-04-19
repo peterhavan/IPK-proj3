@@ -10,10 +10,12 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
+#include <net/if.h>
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
@@ -50,12 +52,13 @@ int main(int argc, char* argv[])
 	/* setting up variables
 	 * making sure every char* is set to '\0' */
 	char c;
-	bool pu = false, pt = false, i = false;
+	bool puFlag = false, ptFlag = false, iFlag = false;
 	const char *destinationName;
-	char *interface, *SYN, *UDP;
+	char *interface, *SYN, *UDP, *dev;
 	struct hostent *server;
 	int udpPortList[BUFSIZE] = {-1};
 	int tcpPortList[BUFSIZE] = {-1};
+	char errbuf[PCAP_ERRBUF_SIZE], interfaceName[100] = {'\0'};
 	
 	/* checking arguments */
 	if (argc < 2)
@@ -82,17 +85,17 @@ int main(int argc, char* argv[])
 	    		if (!strcmp(long_options[option_index].name, "pu"))
 	    		{
 	   		 		UDP = strdup(optarg);
-	   		 		pu = true;
+	   		 		puFlag = true;
 	    		}
 	   		 	else
 	   		 	{
 	   		 		SYN = strdup(optarg);
-	   		 		pt = true;
+	   		 		ptFlag = true;
 	   		 	}
 	    		break;
 
 	    	case 'i':
-	    		i = true;
+	    		iFlag = true;
 	    		interface = strdup(optarg);
 	    		break;
 
@@ -117,7 +120,7 @@ int main(int argc, char* argv[])
 	char destinationAddress[32];
 	strcpy(destinationAddress, inet_ntoa(addr));
 	
-	if (pu)
+	if (puFlag)
 	{
 		int index = 0;
 		if (strstr(UDP, ",") != NULL)
@@ -147,7 +150,7 @@ int main(int argc, char* argv[])
 
 	}
 
-	if (pt)
+	if (ptFlag)
 	{
 		int index = 0;
 		if (strstr(SYN, ",") != NULL)
@@ -176,13 +179,7 @@ int main(int argc, char* argv[])
 			tcpPortList[0] = atoi(SYN);
 	}
 
-	/*for (int i = 0; udpPortList[i] > 0; i++)
-		printf("%d, ", udpPortList[i]);
-	printf("\n");
 
-	for (int i = 0; tcpPortList[i] > 0; i++)
-		printf("%d, ", tcpPortList[i]);
-	printf("\n");*/
 
 	//Create a raw socket
 	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
@@ -202,11 +199,32 @@ int main(int argc, char* argv[])
 	struct pseudoTcpHeader psh;
 	
 	//strcpy(source_ip, "127.0.1.1");
-	char hostBuffer[256];
+	/*char hostBuffer[256];
 	gethostname(hostBuffer, sizeof(hostBuffer));
 	struct hostent *hostInfo;
 	hostInfo = gethostbyname(hostBuffer);
-	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));
+	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));*/
+	if (iFlag)
+		dev = interface;
+	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
+    	err(1,"Can't open input device");
+
+    //strcpy(interfaceName, dev);
+    //getting current IP address
+    //inspired by https://stackoverflow.com/questions/1570511/c-code-to-get-the-ip-address
+    int fd;
+    struct ifreq ifr;
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    ifr.ifr_addr.sa_family = AF_INET;
+    snprintf(ifr.ifr_name, IFNAMSIZ, "%s",dev);
+    //strncpy (ifr.ifr_name, IFNAMSIZ, interfaceName);
+    ioctl(fd, SIOCGIFADDR, &ifr);
+    /* and more importantly */
+    //printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+    strcpy(source_ip, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+    close(fd);
+
+	printf("%s\n", source_ip);
 	sin.sin_family = AF_INET;
 	//sin.sin_port = htons(80);
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
@@ -286,19 +304,19 @@ int main(int argc, char* argv[])
 		errorMsg("ERROR: sendto() failed");*/
 
    //close(s);
-	char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
+	//char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
 	//pcap_t *handle;                 // packet capture handle 
-	char *dev;                      // input device
+	//char *dev;                      // input device
 	//struct in_addr a,b;
 	bpf_u_int32 netaddr;            // network address configured at the input device
 	bpf_u_int32 mask;               // network mask of the input device
 	struct bpf_program fp;          // the compiled filter
 
 	// open the device to sniff data
-	if (i)
+	/*if (iFlag)
 		dev = interface;
 	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
-    	err(1,"Can't open input device");
+    	err(1,"Can't open input device");*/
 
 	// get IP address and mask of the sniffing interface
 	if (pcap_lookupnet(dev,&netaddr,&mask,errbuf) == -1)
