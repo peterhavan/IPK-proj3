@@ -15,6 +15,7 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
+#include <netinet/ip_icmp.h>
 #include <net/if.h>
 #include <unistd.h>
 #include <string.h>
@@ -59,7 +60,7 @@ int main(int argc, char* argv[])
 	struct hostent *server;
 	int udpPortList[BUFSIZE] = {-1};
 	int tcpPortList[BUFSIZE] = {-1};
-	char errbuf[PCAP_ERRBUF_SIZE], interfaceName[100] = {'\0'};
+	char errbuf[PCAP_ERRBUF_SIZE];
 	
 	/* checking arguments */
 	if (argc < 2)
@@ -220,7 +221,7 @@ int main(int argc, char* argv[])
 	//sin.sin_port = htons(80);
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
 	
-	int ID = 54321;
+	//int ID = 54321;
 	//Fill in the IP Header
 	iph->ihl = 5;
 	iph->version = 4;
@@ -334,7 +335,7 @@ int main(int argc, char* argv[])
 
     printf("PORT\t\tSTATE\n");
 
-    for (tcpCount; tcpPortList[tcpCount] > 0; tcpCount++)
+    for (; tcpPortList[tcpCount] > 0; tcpCount++)
     {
     	/*if (repeat)
     		i--;*/
@@ -402,7 +403,27 @@ int main(int argc, char* argv[])
 
 void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
-	printf("pcapUdpHandler\n");
+	struct ip *my_ip;
+	const struct icmp *my_icmp;
+	u_int size_ip;
+
+	my_ip = (struct ip*) (packet+SIZE_ETHERNET);
+	size_ip = my_ip->ip_hl*4;
+	if (my_ip->ip_p == 1)
+	{
+		my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
+		if (my_icmp->icmp_code == 3)
+		{
+			if (ntohs(currentDstPort) > 999)
+	      		printf ("udp/%d\t", currentDstPort);
+	      	else
+	      		printf ("udp/%d\t\t", currentDstPort);
+	      	red();
+	      	printf("closed\n");
+	      	reset();
+	      	pcap_breakloop(handle);
+		}
+	}
 }
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
@@ -410,7 +431,7 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	struct ip *my_ip;               // pointer to the beginning of IP header
 	//struct ether_header *eptr;      // pointer to the beginning of Ethernet header
 	const struct tcphdr *my_tcp;    // pointer to the beginning of TCP header
-	const struct udphdr *my_udp;    // pointer to the beginning of UDP header
+	//const struct udphdr *my_udp;    // pointer to the beginning of UDP header
 	u_int size_ip;
 
     n++;
@@ -532,6 +553,13 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 void signalalarmUdpHandler()
 {
+	if (currentDstPort > 999)
+	    printf ("udp/%d\t", currentDstPort);
+	else
+	    printf ("udp/%d\t\t", currentDstPort);
+	green();
+	printf("open\n");
+	reset();
 	pcap_breakloop(handle);
 }
 
