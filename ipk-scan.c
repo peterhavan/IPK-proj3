@@ -44,7 +44,7 @@ int currentDstPort = -1;
 int tcpCount = 0;
 
 
-void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 
 int main(int argc, char* argv[])
@@ -297,7 +297,7 @@ int main(int argc, char* argv[])
 	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
 			errorMsg("ERROR: sendto() failed");
 
-	  	if (pcap_loop(handle, -1, mypcap_handler, NULL) == -1)
+	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1)
 	    	err(1,"pcap_loop() failed");
 	}
 
@@ -379,7 +379,7 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	}
 }
 
-void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
 	struct ip *my_ip;               // pointer to the beginning of IP header
 	const struct tcphdr *my_tcp;    // pointer to the beginning of TCP header
