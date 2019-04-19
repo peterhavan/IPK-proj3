@@ -39,6 +39,8 @@
 int n = 0;
 pcap_t *handle;
 int currentDstPort = -1;
+//bool repeat = false;
+int tcpCount = 0;
 
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
@@ -73,10 +75,10 @@ int main(int argc, char* argv[])
 	    switch (c)
 	    {
 	    	case 0:
-	    		printf("option %s", long_options[option_index].name);
+	    		/*printf("option %s", long_options[option_index].name);
 	    		if (optarg)
-	    			printf(" with arg %s", optarg);
-	    		printf("\n");
+	    			printf(" with arg %s", optarg);*/
+	    		//printf("\n");
 	    		if (!strcmp(long_options[option_index].name, "pu"))
 	    		{
 	   		 		UDP = strdup(optarg);
@@ -95,7 +97,7 @@ int main(int argc, char* argv[])
 	    		break;
 
 	    	default:
-	    		errorMsg("ERROR: Invalid options, default case");
+	    		errorMsg("ERROR: Invalid options");
 	    }
 	}
 
@@ -140,6 +142,9 @@ int main(int argc, char* argv[])
 				udpPortList[i] = from+i;
 
 		}
+		else
+			udpPortList[0] = atoi(UDP);
+
 	}
 
 	if (pt)
@@ -167,6 +172,8 @@ int main(int argc, char* argv[])
 			for (int i = 0; i <= (to-from); i++)
 				tcpPortList[i] = from+i;
 		}
+		else
+			tcpPortList[0] = atoi(SYN);
 	}
 
 	/*for (int i = 0; udpPortList[i] > 0; i++)
@@ -279,7 +286,6 @@ int main(int argc, char* argv[])
 		errorMsg("ERROR: sendto() failed");*/
 
    //close(s);
-
 	char errbuf[PCAP_ERRBUF_SIZE];  // constant defined in pcap.h
 	//pcap_t *handle;                 // packet capture handle 
 	char *dev;                      // input device
@@ -320,24 +326,22 @@ int main(int argc, char* argv[])
 
     printf("PORT\t\tSTATE\n");
 
-    for (int i = 0; tcpPortList[i] > 0; i++)
+    for (tcpCount; tcpPortList[tcpCount] > 0; tcpCount++)
     {
-    	//printf("tcpPortList[i] = %d\n", tcpPortList[i]);
-    	//iph->id = htonl (ID++);
-    	//iph->check = csum ((unsigned short *) packet, iph->tot_len);
-    	sin.sin_port = htons(tcpPortList[i]);
-		tcph->dest = htons (tcpPortList[i]);
+    	/*if (repeat)
+    		i--;*/
+    	sin.sin_port = htons(tcpPortList[tcpCount]);
+		tcph->dest = htons (tcpPortList[tcpCount]);
 
 		tcph->check = 0;
 		memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader), tcph ,sizeof(struct tcphdr));
     	tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
 
 	    signal(SIGALRM, signalarmTcpHandler);   
-	    alarm(10);
+	    alarm(3);
 
 		//tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));             
-
-	    currentDstPort = tcpPortList[i];
+	    currentDstPort = tcpPortList[tcpCount];
 	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
 			errorMsg("ERROR: sendto() failed");
 
@@ -345,8 +349,9 @@ int main(int argc, char* argv[])
 	    	err(1,"pcap_loop() failed");
 	}
   	// close the capture device and deallocate resources
+  	close(s);
   	pcap_close(handle);
-
+  	free(pseudoPacket);
 
     return 0;
 }
@@ -474,9 +479,19 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 void signalarmTcpHandler()
 {
-	printf("recievedSignal\n");
+	static bool repeat = false;
+	if (repeat)
+	{
+		if (ntohs(currentDstPort) > 999)
+	    	printf ("tcp/%d\t\t", currentDstPort);
+	    else
+	      	printf ("tcp/%d\t\t", currentDstPort);
+	    printf("filtered\n"); 
+	}
+	else
+		tcpCount--;
+	repeat = !repeat;
 	pcap_breakloop(handle);
-	printf("breakloop called\n");
 }
 
 /* Function is called when error occurs
