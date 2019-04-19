@@ -46,6 +46,7 @@ int tcpCount = 0;
 
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 
 int main(int argc, char* argv[])
 {
@@ -188,28 +189,21 @@ int main(int argc, char* argv[])
 		errorMsg("ERROR: socket() failed");
 	
 	//packet to represent the packet
-	char packet[PCKT_LEN] , source_ip[32], *pseudoPacket;
+	char packet[PCKT_LEN] , source_ip[32], *pseudoTcpPacket;
 	
 	//zero out the packet buffer
 	memset (packet, 0, PCKT_LEN);
 	
 	struct iphdr *iph = (struct iphdr *) packet;
-	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof (struct ip));
+	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof(struct ip));
 	struct sockaddr_in sin;
 	struct pseudoTcpHeader psh;
 	
-	//strcpy(source_ip, "127.0.1.1");
-	/*char hostBuffer[256];
-	gethostname(hostBuffer, sizeof(hostBuffer));
-	struct hostent *hostInfo;
-	hostInfo = gethostbyname(hostBuffer);
-	strcpy(source_ip, inet_ntoa(*((struct in_addr*) hostInfo->h_addr_list[0])));*/
 	if (iFlag)
 		dev = interface;
 	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
     	err(1,"Can't open input device");
 
-    //strcpy(interfaceName, dev);
     //getting current IP address
     //inspired by https://stackoverflow.com/questions/1570511/c-code-to-get-the-ip-address
     int fd;
@@ -217,10 +211,7 @@ int main(int argc, char* argv[])
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     ifr.ifr_addr.sa_family = AF_INET;
     snprintf(ifr.ifr_name, IFNAMSIZ, "%s",dev);
-    //strncpy (ifr.ifr_name, IFNAMSIZ, interfaceName);
     ioctl(fd, SIOCGIFADDR, &ifr);
-    /* and more importantly */
-    //printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
     strcpy(source_ip, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
     close(fd);
 
@@ -270,12 +261,11 @@ int main(int argc, char* argv[])
 	psh.tcpLen = htons(sizeof(struct tcphdr));
 	
 	int psize = sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr);
-	pseudoPacket = malloc(psize);
+	pseudoTcpPacket = malloc(psize);
 	
-	memcpy(pseudoPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
-	//memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
-	
-	//tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
+	memcpy(pseudoTcpPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
+	//memcpy(pseudoTcpPacket + sizeof(struct pseudoTcpHeader) , tcph , sizeof(struct tcphdr));
+	//tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
 
 	int one = 1;
 	const int *val = &one;
@@ -352,13 +342,13 @@ int main(int argc, char* argv[])
 		tcph->dest = htons (tcpPortList[tcpCount]);
 
 		tcph->check = 0;
-		memcpy(pseudoPacket + sizeof(struct pseudoTcpHeader), tcph ,sizeof(struct tcphdr));
-    	tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
+		memcpy(pseudoTcpPacket + sizeof(struct pseudoTcpHeader), tcph ,sizeof(struct tcphdr));
+    	tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));
 
-	    signal(SIGALRM, signalarmTcpHandler);   
+	    signal(SIGALRM, signalalarmTcpHandler);   
 	    alarm(3);
 
-		//tcph->check = csum((unsigned short*) pseudoPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));             
+		//tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct tcphdr)));             
 	    currentDstPort = tcpPortList[tcpCount];
 	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
 			errorMsg("ERROR: sendto() failed");
@@ -366,12 +356,53 @@ int main(int argc, char* argv[])
 	  	if (pcap_loop(handle, -1, mypcap_handler, NULL) == -1)
 	    	err(1,"pcap_loop() failed");
 	}
+
+	char *pseudoUdpPacket;
+	struct udphdr *udph = (struct udphdr *) (packet + sizeof(struct ip));
+	memset(udph, 0, PCKT_LEN - sizeof(struct iphdr));
+	udph->uh_sport = htons (1234);
+	//udph->uh_dport = 
+	udph->uh_ulen = sizeof(struct udphdr);
+	//udph->uh_sum =
+
+	psize = sizeof(struct pseudoTcpHeader) + sizeof(struct udphdr);
+	pseudoUdpPacket = malloc(psize);
+	
+	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
+
+	for (int i = 0; udpPortList[i] > 0; i++)
+	{
+		sin.sin_port = htons(udpPortList[i]);
+		udph->uh_dport = htons(udpPortList[i]);
+		udph->uh_sum = 0;
+
+		memcpy(pseudoUdpPacket + sizeof(struct pseudoTcpHeader), udph, sizeof(struct udphdr));
+    	udph->uh_sum = csum((unsigned short*) pseudoUdpPacket, (sizeof(struct pseudoTcpHeader) + sizeof(struct udphdr)));
+
+    	signal(SIGALRM, signalalarmUdpHandler);   
+	    alarm(3);
+
+	   	currentDstPort = udpPortList[i];
+	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+			errorMsg("ERROR: sendto() failed");
+
+	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1)
+	    	err(1,"pcap_loop() failed");
+
+	}
+
   	// close the capture device and deallocate resources
   	close(s);
   	pcap_close(handle);
-  	free(pseudoPacket);
+  	free(pseudoUdpPacket);
+  	free(pseudoTcpPacket);
 
     return 0;
+}
+
+void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+{
+	printf("pcapUdpHandler\n");
 }
 
 void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
@@ -416,7 +447,9 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
 	      		else
 	      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+	      		green();
 	      		printf("open\n");
+	      		reset();
 				//printf("\n");
 	      		alarm(0);
 	      		pcap_breakloop(handle);
@@ -428,7 +461,9 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
 	      		else
 	      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+	      		red();
 	      		printf("closed\n");
+	      		reset();
 	      		alarm(0);
 	      		pcap_breakloop(handle);
 	      	}
@@ -495,7 +530,12 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
   }*/ 
 }
 
-void signalarmTcpHandler()
+void signalalarmUdpHandler()
+{
+	pcap_breakloop(handle);
+}
+
+void signalalarmTcpHandler()
 {
 	static bool repeat = false;
 	if (repeat)
@@ -504,7 +544,9 @@ void signalarmTcpHandler()
 	    	printf ("tcp/%d\t\t", currentDstPort);
 	    else
 	      	printf ("tcp/%d\t\t", currentDstPort);
+	    yellow();
 	    printf("filtered\n"); 
+	    reset();
 	}
 	else
 		tcpCount--;
@@ -518,6 +560,22 @@ void errorMsg(char *msg)
 {
 	fprintf(stderr, "%s\n", msg);
 	exit(1);
+}
+
+void red() {
+  printf("\033[1;31m");
+}
+
+void green() {
+  printf("\033[1;32m");
+}
+
+void yellow() {
+  printf("\033[1;33m");
+}
+
+void reset() {
+  printf("\033[0m");
 }
 
 unsigned short csum(unsigned short *ptr,int nbytes) 

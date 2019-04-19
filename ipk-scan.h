@@ -26,4 +26,9 @@ struct pseudoTcpHeader
 unsigned short csum(unsigned short *ptr,int nbytes);
 
 void errorMsg(char *msg);
-void signalarmTcpHandler();
+void signalalarmTcpHandler();
+void signalalarmUdpHandler();
+void red();
+void green();
+void reset();
+void yellow();
