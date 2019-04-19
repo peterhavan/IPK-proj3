@@ -374,6 +374,14 @@ int main(int argc, char* argv[])
 	psh.tcpLen = htons(sizeof(struct udphdr));
 	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoTcpHeader));
 
+	// compile the filter
+	if (pcap_compile(handle,&fp,"icmp",0,netaddr) == -1)
+    	err(1,"pcap_compile() failed");
+  
+	// set the filter to the packet capture handle
+  	if (pcap_setfilter(handle,&fp) == -1)
+    	err(1,"pcap_setfilter() failed");
+
 	for (int i = 0; udpPortList[i] > 0; i++)
 	{
 		sin.sin_port = htons(udpPortList[i]);
@@ -417,7 +425,7 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 		my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
 		if (my_icmp->icmp_code == 3)
 		{
-			if (ntohs(currentDstPort) > 999)
+			if (currentDstPort > 999)
 	      		printf ("udp/%d\t", currentDstPort);
 	      	else
 	      		printf ("udp/%d\t\t", currentDstPort);
