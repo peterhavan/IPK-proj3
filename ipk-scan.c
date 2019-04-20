@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
 	/* setting up variables
 	 * making sure every char* is set to '\0' */
 	char c;
-	bool puFlag = false, ptFlag = false, iFlag = false, ipv6Flag = false;
+	bool puFlag = false, ptFlag = false, iFlag = false, ipv6Flag = false, ipv4Flag = false;
 	char *interface, *SYN, *UDP, *dev;
 	int udpPortList[BUFSIZE] = {-1};
 	int tcpPortList[BUFSIZE] = {-1};
@@ -119,6 +119,7 @@ int main(int argc, char* argv[])
       	switch (res->ai_family)
         {
         	case AF_INET:
+        		ipv4Flag = true;
           		ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
           		break;
         	case AF_INET6:
@@ -229,6 +230,7 @@ int main(int argc, char* argv[])
             		struct sockaddr_in6 *in6 = (struct sockaddr_in6*) ifa_tmp->ifa_addr;
             		inet_ntop(AF_INET6, &in6->sin6_addr, sourceAddress, sizeof(sourceAddress));
             		strcpy(sourceIp6, sourceAddress);
+            		break;
             	}
         	}
 //        	printf("name = %s\n", ifa_tmp->ifa_name);
@@ -237,7 +239,7 @@ int main(int argc, char* argv[])
     	ifa_tmp = ifa_tmp->ifa_next;
 	}
 
-	if (!ipv6Flag)
+	if (ipv4Flag)
 		sendV4Packet(sourceIp4, destinationAddress, udpPortList, tcpPortList, dev);
 	else
 		sendV6Packet(sourceIp6, destinationAddress, udpPortList, tcpPortList, dev);
@@ -264,7 +266,7 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	struct pseudoHeaderV6 psh;
 
 	//char buf[16];
-	inet_pton(AF_INET, destinationAddress, sin.sin6_addr.s6_addr);
+	inet_pton(AF_INET6, destinationAddress, sin.sin6_addr.s6_addr);
 	sin.sin6_family = AF_INET6;
 	//sin.sin6_addr.s6_addr = buf;
 
@@ -272,8 +274,8 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	iph->ip6_nxt = IPPROTO_TCP;
 	iph->ip6_hops = 255;
 	iph->ip6_vfc = 6;
-	inet_pton(AF_INET, sourceIp6, &iph->ip6_src);
-	inet_pton(AF_INET, destinationAddress, &iph->ip6_dst);
+	inet_pton(AF_INET6, sourceIp6, &iph->ip6_src);
+	inet_pton(AF_INET6, destinationAddress, &iph->ip6_dst);
 
 	//TCP Header
 	tcph->source = htons (1234);
@@ -290,11 +292,79 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	tcph->check = 0;	//leave checksum 0 now, filled later by pseudo header
 	tcph->urg_ptr = 0;
 
-	inet_pton(AF_INET, sourceIp6, &psh.src);
-	inet_pton(AF_INET, sourceIp6, &psh.dst);
-	psh.len = sizeof(struct tcphdr);
+	inet_pton(AF_INET6, sourceIp6, &psh.src);
+	inet_pton(AF_INET6, sourceIp6, &psh.dst);
+	psh.len = htons(sizeof(struct tcphdr));
 	psh.zeros = 0;
 	psh.next = IPPROTO_TCP;
+
+	int psize = sizeof(struct pseudoHeaderV6) + sizeof(struct tcphdr);
+	pseudoTcpPacket = malloc(psize);
+	
+	memcpy(pseudoTcpPacket, (char*) &psh, sizeof(struct pseudoHeaderV6));
+
+	int one = 1;
+	const int *val = &one;
+
+	//Create a raw socket
+	int s = socket (AF_INET6, SOCK_RAW, IPPROTO_TCP);
+	if (s == -1)
+		errorMsg("ERROR: socket() failed");
+
+    // Inform the kernel do not fill up the headers' structure, we fabricated our own
+    //if(setsockopt(s, IPPROTO_IPV6, IP_HDRINCL, val, sizeof(one)) < 0)
+    if(setsockopt(s, IPPROTO_IPV6, IPV6_RECVPKTINFO, val, sizeof(one)) < 0)
+    {
+        errorMsg("ERROR: setsockopt() failed");
+    }
+
+	bpf_u_int32 netaddr;            // network address configured at the input device
+	bpf_u_int32 mask;               // network mask of the input device
+	struct bpf_program fp;          // the compiled filter
+
+	// get IP address and mask of the sniffing interface
+	if (pcap_lookupnet(dev,&netaddr,&mask,errbuf) == -1)
+    	err(1,"pcap_lookupnet() failed");
+
+	// open the interface for live sniffing
+	if ((handle = pcap_open_live(dev,BUFSIZ,1,1000,errbuf)) == NULL)
+    	err(1,"pcap_open_live() failed");
+
+	// compile the filter
+	if (pcap_compile(handle,&fp,"port 1234",0,netaddr) == -1)
+    	err(1,"pcap_compile() failed");
+  
+	// set the filter to the packet capture handle
+  	if (pcap_setfilter(handle,&fp) == -1)
+    	err(1,"pcap_setfilter() failed");
+
+    printf("PORT\t\tSTATE\n");
+
+    for (; tcpPortList[tcpCount] > 0; tcpCount++)
+    {
+    	sin.sin6_port = htons(tcpPortList[tcpCount]);
+		tcph->dest = htons (tcpPortList[tcpCount]);
+
+		tcph->check = 0;
+		memcpy(pseudoTcpPacket + sizeof(struct pseudoHeaderV6), tcph, sizeof(struct tcphdr));
+    	tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoHeaderV6) + sizeof(struct tcphdr)));
+
+	    signal(SIGALRM, signalalarmTcpHandler);   
+	    alarm(3);
+
+	    currentDstPort = tcpPortList[tcpCount];
+	    //int a = 0;
+	    //int errno;
+	    if((sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct tcphdr), 0, (struct sockaddr *)&sin, sizeof(sin))) < 0)
+	    {
+	    	/*printf("sendto() error number = %d\n", a);
+	    	printf("Error sending: %i\n",errno);
+	    	perror("sendto failed");*/
+			errorMsg("ERROR: sendto() failed");
+	    }
+	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1)
+	    	err(1,"pcap_loop() failed");
+	}
 }
 
 void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
