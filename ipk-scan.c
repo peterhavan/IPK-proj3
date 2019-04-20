@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-//#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
@@ -26,10 +25,8 @@
 #include <netdb.h>
 #include <getopt.h>
 #include <netinet/ether.h> 
-//#include <time.h>
 #include <pcap/pcap.h>
 #include <err.h>
-//#include <pcap.h>
 #include <errno.h>
 #include <signal.h>
 #include <ifaddrs.h>
@@ -112,7 +109,6 @@ int main(int argc, char* argv[])
   	errcode = getaddrinfo (argv[optind], NULL, &hints, &res);
   	if (errcode != 0)
   		errorMsg("ERROR: gettaddrinfo()");
-  	printf ("Host: %s\n", argv[optind]);
   	while (res)
     {
     	inet_ntop (res->ai_family, res->ai_addr->sa_data, destinationAddress, 100);
@@ -128,7 +124,6 @@ int main(int argc, char* argv[])
           		break;
         }
       	inet_ntop (res->ai_family, ptr, destinationAddress, 100);
-      	printf ("IPv%d address: %s (%s)\n", res->ai_family == PF_INET6 ? 6 : 4, destinationAddress, res->ai_canonname);
       	res = res->ai_next;
     }
 	
@@ -252,11 +247,6 @@ int main(int argc, char* argv[])
 
 void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
 {	
-	printf("Dealing with IPv6 Packet\n***********************************\n");
-	printf("\tsource IP address: %s\n", sourceIp6);
-	printf("\ttarget IP address: %s\n", destinationAddress);
-	printf("\tlistening on interface: %s\n*********************************\n", dev);
-
 	char errbuf[PCAP_ERRBUF_SIZE];
 	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
 	//zero out the packet buffer
@@ -266,7 +256,6 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	struct sockaddr_in6 sin = { 0 };
 	struct pseudoHeaderV6 psh;
 
-	//char buf[16];
 	inet_pton(AF_INET6, destinationAddress, &sin.sin6_addr);
 	sin.sin6_family = AF_INET6;
 
