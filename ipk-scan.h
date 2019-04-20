@@ -23,7 +23,7 @@ struct pseudoHeader
     unsigned short int tcpLen;
 };
 
-struct pseduoHeaderV6
+struct pseudoHeaderV6
 {
     char src[16];
     char dst[16];
@@ -33,7 +33,8 @@ struct pseduoHeaderV6
 };
 
 unsigned short csum(unsigned short *ptr,int nbytes);
-
+void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev);
+void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev);
 void errorMsg(char *msg);
 void signalalarmTcpHandler();
 void signalalarmUdpHandler();

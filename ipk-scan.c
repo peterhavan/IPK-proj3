@@ -14,6 +14,7 @@
 //#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <netinet/ip6.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ip_icmp.h>
@@ -53,13 +54,11 @@ int main(int argc, char* argv[])
 	/* setting up variables
 	 * making sure every char* is set to '\0' */
 	char c;
-	bool puFlag = false, ptFlag = false, iFlag = false;
-	const char *destinationName;
+	bool puFlag = false, ptFlag = false, iFlag = false, ipv6Flag = false;
 	char *interface, *SYN, *UDP, *dev;
-	struct hostent *server;
 	int udpPortList[BUFSIZE] = {-1};
 	int tcpPortList[BUFSIZE] = {-1};
-	char errbuf[PCAP_ERRBUF_SIZE];
+	char errbuf[PCAP_ERRBUF_SIZE], destinationAddress[100], sourceIp4[32], sourceIp6[50];
 	
 	/* checking arguments */
 	if (argc < 2)
@@ -100,11 +99,9 @@ int main(int argc, char* argv[])
 	}
 
 	/* getting server adress */
-	//destinationName = argv[optind];
 	/*****************************************************************************************/
   	struct addrinfo hints, *res;
   	int errcode;
-  	char destinationAddress[100];
   	void *ptr;
 
   	memset (&hints, 0, sizeof (hints));
@@ -114,10 +111,7 @@ int main(int argc, char* argv[])
 
   	errcode = getaddrinfo (argv[optind], NULL, &hints, &res);
   	if (errcode != 0)
-    {
-      perror ("getaddrinfo");
-      return -1;
-    }
+  		errorMsg("ERROR: gettaddrinfo()");
   	printf ("Host: %s\n", argv[optind]);
   	while (res)
     {
@@ -128,6 +122,7 @@ int main(int argc, char* argv[])
           		ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
           		break;
         	case AF_INET6:
+        		ipv6Flag = true;
           		ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
           		break;
         }
@@ -135,24 +130,6 @@ int main(int argc, char* argv[])
       	printf ("IPv%d address: %s (%s)\n", res->ai_family == PF_INET6 ? 6 : 4, destinationAddress, res->ai_canonname);
       	res = res->ai_next;
     }
-/*******************************************************************************************/
-	/*if ((server = gethostbyname(destinationName)) == NULL)
-	{
-		char *tmp = "ERROR: no such host as ";
-		strcat(tmp, destinationName);
-		errorMsg(tmp);
-	}*/
-	//char destinationAddress[40];
-	//strcpy(destinationAddress, addrstr);
-
-	/*printf("server->h_addr_list[0] = %s\n", server->h_addr_list[0]);
-	printf("addrstr = %s\n", addrstr);
-	struct in_addr addr;
-	memcpy(&addr, server->h_addr_list[0], sizeof(struct in_addr)); 
-	//memcpy(&addr, addrstr, sizeof(struct in_addr)); 
-
-	char destinationAddress[32];
-	strcpy(destinationAddress, inet_ntoa(addr));*/
 	
 	if (puFlag)
 	{
@@ -207,22 +184,6 @@ int main(int argc, char* argv[])
 		else
 			tcpPortList[0] = atoi(SYN);
 	}
-
-	//Create a raw socket
-	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
-	if (s == -1)
-		errorMsg("ERROR: socket() failed");
-	
-	//packet to represent the packet
-	char packet[PCKT_LEN] , sourceIp4[32], *pseudoTcpPacket;
-	
-	//zero out the packet buffer
-	memset (packet, 0, PCKT_LEN);
-	
-	struct iphdr *iph = (struct iphdr *) packet;
-	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof(struct ip));
-	struct sockaddr_in sin;
-	struct pseudoHeader psh;
 	
 	if (iFlag)
 		dev = interface;
@@ -232,7 +193,7 @@ int main(int argc, char* argv[])
     //getting address on the interface, inspired by
     //https://stackoverflow.com/questions/33125710/how-to-get-ipv6-interface-address-using-getifaddr-function
 	struct ifaddrs *ifa, *ifa_tmp;
-	char addr6[50];
+	char sourceAddress[50];
 
 	if (getifaddrs(&ifa) == -1) 
 	{
@@ -250,14 +211,12 @@ int main(int argc, char* argv[])
         	if (ifa_tmp->ifa_addr->sa_family == AF_INET) 
         	{
             	// create IPv4 string
-            	//struct sockaddr_in *in = (struct sockaddr_in*) ifa_tmp->ifa_addr;
-            	//inet_ntop(AF_INET, &in->sin_addr, addr6, sizeof(addr6));
             	if (!strcmp(ifa_tmp->ifa_name, dev))
             	{
             		struct sockaddr_in *in = (struct sockaddr_in*) ifa_tmp->ifa_addr;
-            		inet_ntop(AF_INET, &in->sin_addr, addr6, sizeof(addr6));
-            		strcpy(sourceIp4, addr6);
-            		//printf("dev = %s\t addr6 = %s\n", dev, addr6);
+            		inet_ntop(AF_INET, &in->sin_addr, sourceAddress, sizeof(sourceAddress));
+            		strcpy(sourceIp4, sourceAddress);
+            		//printf("dev = %s\t sourceAddress = %s\n", dev, sourceAddress);
             	}
             
         	}
@@ -268,19 +227,86 @@ int main(int argc, char* argv[])
             	if (!strcmp(ifa_tmp->ifa_name, dev))
             	{
             		struct sockaddr_in6 *in6 = (struct sockaddr_in6*) ifa_tmp->ifa_addr;
-            		inet_ntop(AF_INET6, &in6->sin6_addr, addr6, sizeof(addr6));
-            		//strcpy(sourceIp4, addr6);
+            		inet_ntop(AF_INET6, &in6->sin6_addr, sourceAddress, sizeof(sourceAddress));
+            		strcpy(sourceIp6, sourceAddress);
             	}
         	}
-        	//printf("name = %s\n", ifa_tmp->ifa_name);
-        	//printf("addr = %s\n", addr6);
+//        	printf("name = %s\n", ifa_tmp->ifa_name);
+// 	      	printf("addr = %s\n", sourceAddress);
     	}
     	ifa_tmp = ifa_tmp->ifa_next;
 	}
 
+	if (!ipv6Flag)
+		sendV4Packet(sourceIp4, destinationAddress, udpPortList, tcpPortList, dev);
+	else
+		sendV6Packet(sourceIp6, destinationAddress, udpPortList, tcpPortList, dev);
+
     /****************************************************************/
 
-	//printf("sourceIp4 = %s\n", sourceIp4);
+    return 0;
+}
+
+void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
+{	
+	printf("Dealing with IPv6 Packet\n***********************************\n");
+	printf("\tsource IP address: %s\n", sourceIp6);
+	printf("\ttarget IP address: %s\n", destinationAddress);
+	printf("\tlistening on interface: %s\n*********************************\n", dev);
+
+	char errbuf[PCAP_ERRBUF_SIZE];
+	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
+	//zero out the packet buffer
+	memset (packet, 0, PCKT_LEN);	
+	struct ip6_hdr *iph = (struct ip6_hdr *) packet;
+	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof(struct ip6_hdr));
+	struct sockaddr_in6 sin;
+	struct pseudoHeaderV6 psh;
+
+	//char buf[16];
+	inet_pton(AF_INET, destinationAddress, sin.sin6_addr.s6_addr);
+	sin.sin6_family = AF_INET6;
+	//sin.sin6_addr.s6_addr = buf;
+
+	iph->ip6_plen = htons(sizeof(struct tcphdr));
+	iph->ip6_nxt = IPPROTO_TCP;
+	iph->ip6_hops = 255;
+	iph->ip6_vfc = 6;
+	inet_pton(AF_INET, sourceIp6, &iph->ip6_src);
+	inet_pton(AF_INET, destinationAddress, &iph->ip6_dst);
+
+	//TCP Header
+	tcph->source = htons (1234);
+	tcph->seq = 0;
+	tcph->ack_seq = 0;
+	tcph->doff = 5;	//tcp header size
+	tcph->fin=0;
+	tcph->syn=1;
+	tcph->rst=0;
+	tcph->psh=0;
+	tcph->ack=0;
+	tcph->urg=0;
+	tcph->window = htons (5840);	/* maximum allowed window size */
+	tcph->check = 0;	//leave checksum 0 now, filled later by pseudo header
+	tcph->urg_ptr = 0;
+
+	inet_pton(AF_INET, sourceIp6, &psh.src);
+	inet_pton(AF_INET, sourceIp6, &psh.dst);
+	psh.len = sizeof(struct tcphdr);
+	psh.zeros = 0;
+	psh.next = IPPROTO_TCP;
+}
+
+void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
+{
+	char errbuf[PCAP_ERRBUF_SIZE];
+	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
+	//zero out the packet buffer
+	memset (packet, 0, PCKT_LEN);	
+	struct iphdr *iph = (struct iphdr *) packet;
+	struct tcphdr *tcph = (struct tcphdr *) (packet + sizeof(struct iphdr));
+	struct sockaddr_in sin;
+	struct pseudoHeader psh;
 
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
@@ -292,7 +318,7 @@ int main(int argc, char* argv[])
 	iph->tot_len = sizeof (struct iphdr) + sizeof (struct tcphdr);
 	iph->id = htonl (424242);	//Id of this packet
 	iph->frag_off = 0;
-	iph->ttl = 16;
+	iph->ttl = 255;
 	iph->protocol = IPPROTO_TCP;
 	iph->check = 0;		//Set to 0 before calculating checksum
 	iph->saddr = inet_addr ( sourceIp4 );	//Spoof the source ip address
@@ -330,6 +356,11 @@ int main(int argc, char* argv[])
 
 	int one = 1;
 	const int *val = &one;
+
+	//Create a raw socket
+	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
+	if (s == -1)
+		errorMsg("ERROR: socket() failed");
 
     // Inform the kernel do not fill up the headers' structure, we fabricated our own
     if(setsockopt(s, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
@@ -380,7 +411,6 @@ int main(int argc, char* argv[])
 	iph->protocol = IPPROTO_UDP;
 	iph->tot_len = sizeof (struct iphdr) + sizeof(struct udphdr);
 	iph->check = csum ((unsigned short *) packet, iph->tot_len);
-	char *pseudoUdpPacket;
 	struct udphdr *udph = (struct udphdr *) (packet + sizeof(struct iphdr));
 	memset(udph, 0, PCKT_LEN - sizeof(struct iphdr));
 	udph->uh_sport = htons (1234); 
@@ -421,12 +451,12 @@ int main(int argc, char* argv[])
 	    	err(1,"pcap_loop() failed");
 	}
 
-  	// close the capture device and deallocate resources
+	// close the capture device and deallocate resources
   	close(s);
   	pcap_close(handle);
   	free(pseudoUdpPacket);
   	free(pseudoTcpPacket);
-    return 0;
+
 }
 
 void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
