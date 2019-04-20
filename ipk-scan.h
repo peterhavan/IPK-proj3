@@ -23,6 +23,15 @@ struct pseudoHeader
     unsigned short int tcpLen;
 };
 
+struct pseduoHeaderV6
+{
+    char src[16];
+    char dst[16];
+    unsigned int len;
+    unsigned int zeros:24,
+                 next:8;
+};
+
 unsigned short csum(unsigned short *ptr,int nbytes);
 
 void errorMsg(char *msg);

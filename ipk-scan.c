@@ -6,11 +6,12 @@
  *   ipk-scan.c   *
 ***************************/
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/ioctl.h>
+//#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -24,12 +25,13 @@
 #include <netdb.h>
 #include <getopt.h>
 #include <netinet/ether.h> 
-#include <time.h>
+//#include <time.h>
 #include <pcap/pcap.h>
 #include <err.h>
-#include <pcap.h>
+//#include <pcap.h>
 #include <errno.h>
 #include <signal.h>
+#include <ifaddrs.h>
 #include "ipk-scan.h"
 
 #define BUFSIZE 65535
@@ -42,7 +44,6 @@
 pcap_t *handle;
 int currentDstPort = -1;
 int tcpCount = 0;
-
 
 void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
@@ -89,30 +90,69 @@ int main(int argc, char* argv[])
 	   		 		ptFlag = true;
 	   		 	}
 	    		break;
-
 	    	case 'i':
 	    		iFlag = true;
 	    		interface = strdup(optarg);
 	    		break;
-
 	    	default:
 	    		errorMsg("ERROR: Invalid options");
 	    }
 	}
 
 	/* getting server adress */
-	destinationName = argv[optind];
-	if ((server = gethostbyname(destinationName)) == NULL)
+	//destinationName = argv[optind];
+	/*****************************************************************************************/
+  	struct addrinfo hints, *res;
+  	int errcode;
+  	char destinationAddress[100];
+  	void *ptr;
+
+  	memset (&hints, 0, sizeof (hints));
+  	hints.ai_family = PF_UNSPEC;
+  	hints.ai_socktype = SOCK_STREAM;
+  	hints.ai_flags |= AI_CANONNAME;
+
+  	errcode = getaddrinfo (argv[optind], NULL, &hints, &res);
+  	if (errcode != 0)
+    {
+      perror ("getaddrinfo");
+      return -1;
+    }
+  	printf ("Host: %s\n", argv[optind]);
+  	while (res)
+    {
+    	inet_ntop (res->ai_family, res->ai_addr->sa_data, destinationAddress, 100);
+      	switch (res->ai_family)
+        {
+        	case AF_INET:
+          		ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
+          		break;
+        	case AF_INET6:
+          		ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
+          		break;
+        }
+      	inet_ntop (res->ai_family, ptr, destinationAddress, 100);
+      	printf ("IPv%d address: %s (%s)\n", res->ai_family == PF_INET6 ? 6 : 4, destinationAddress, res->ai_canonname);
+      	res = res->ai_next;
+    }
+/*******************************************************************************************/
+	/*if ((server = gethostbyname(destinationName)) == NULL)
 	{
 		char *tmp = "ERROR: no such host as ";
 		strcat(tmp, destinationName);
 		errorMsg(tmp);
-	}
+	}*/
+	//char destinationAddress[40];
+	//strcpy(destinationAddress, addrstr);
 
+	/*printf("server->h_addr_list[0] = %s\n", server->h_addr_list[0]);
+	printf("addrstr = %s\n", addrstr);
 	struct in_addr addr;
 	memcpy(&addr, server->h_addr_list[0], sizeof(struct in_addr)); 
+	//memcpy(&addr, addrstr, sizeof(struct in_addr)); 
+
 	char destinationAddress[32];
-	strcpy(destinationAddress, inet_ntoa(addr));
+	strcpy(destinationAddress, inet_ntoa(addr));*/
 	
 	if (puFlag)
 	{
@@ -136,11 +176,9 @@ int main(int argc, char* argv[])
 			int to = atoi(ptr);
 			for (int i = 0; i <= (to-from); i++)
 				udpPortList[i] = from+i;
-
 		}
 		else
 			udpPortList[0] = atoi(UDP);
-
 	}
 
 	if (ptFlag)
@@ -159,7 +197,6 @@ int main(int argc, char* argv[])
 
 		else if (strstr(SYN, "-") != NULL)
 		{
-
 			char *ptr = strtok(SYN, "-");
 			int from = atoi(ptr);
 			ptr = strtok(NULL, "-");
@@ -173,12 +210,11 @@ int main(int argc, char* argv[])
 
 	//Create a raw socket
 	int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
-	
 	if (s == -1)
 		errorMsg("ERROR: socket() failed");
 	
 	//packet to represent the packet
-	char packet[PCKT_LEN] , source_ip[32], *pseudoTcpPacket;
+	char packet[PCKT_LEN] , sourceIp4[32], *pseudoTcpPacket;
 	
 	//zero out the packet buffer
 	memset (packet, 0, PCKT_LEN);
@@ -193,16 +229,58 @@ int main(int argc, char* argv[])
 	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
     	err(1,"Can't open input device");
 
-    //getting current IP address
-    //inspired by https://stackoverflow.com/questions/1570511/c-code-to-get-the-ip-address
-    int fd;
-    struct ifreq ifr;
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    ifr.ifr_addr.sa_family = AF_INET;
-    snprintf(ifr.ifr_name, IFNAMSIZ, "%s",dev);
-    ioctl(fd, SIOCGIFADDR, &ifr);
-    strcpy(source_ip, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
-    close(fd);
+    //getting address on the interface, inspired by
+    //https://stackoverflow.com/questions/33125710/how-to-get-ipv6-interface-address-using-getifaddr-function
+	struct ifaddrs *ifa, *ifa_tmp;
+	char addr6[50];
+
+	if (getifaddrs(&ifa) == -1) 
+	{
+	    perror("getifaddrs failed");
+	    exit(1);
+	}
+
+	//printf("dev = %s\n", dev);
+	ifa_tmp = ifa;
+	while (ifa_tmp) 
+	{
+    	if ((ifa_tmp->ifa_addr) && ((ifa_tmp->ifa_addr->sa_family == AF_INET) ||
+                              (ifa_tmp->ifa_addr->sa_family == AF_INET6))) 
+    	{
+        	if (ifa_tmp->ifa_addr->sa_family == AF_INET) 
+        	{
+            	// create IPv4 string
+            	//struct sockaddr_in *in = (struct sockaddr_in*) ifa_tmp->ifa_addr;
+            	//inet_ntop(AF_INET, &in->sin_addr, addr6, sizeof(addr6));
+            	if (!strcmp(ifa_tmp->ifa_name, dev))
+            	{
+            		struct sockaddr_in *in = (struct sockaddr_in*) ifa_tmp->ifa_addr;
+            		inet_ntop(AF_INET, &in->sin_addr, addr6, sizeof(addr6));
+            		strcpy(sourceIp4, addr6);
+            		//printf("dev = %s\t addr6 = %s\n", dev, addr6);
+            	}
+            
+        	}
+
+        	else 
+        	{ // AF_INET6
+            	// create IPv6 string
+            	if (!strcmp(ifa_tmp->ifa_name, dev))
+            	{
+            		struct sockaddr_in6 *in6 = (struct sockaddr_in6*) ifa_tmp->ifa_addr;
+            		inet_ntop(AF_INET6, &in6->sin6_addr, addr6, sizeof(addr6));
+            		//strcpy(sourceIp4, addr6);
+            	}
+        	}
+        	//printf("name = %s\n", ifa_tmp->ifa_name);
+        	//printf("addr = %s\n", addr6);
+    	}
+    	ifa_tmp = ifa_tmp->ifa_next;
+	}
+
+    /****************************************************************/
+
+	//printf("sourceIp4 = %s\n", sourceIp4);
 
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
@@ -217,7 +295,7 @@ int main(int argc, char* argv[])
 	iph->ttl = 16;
 	iph->protocol = IPPROTO_TCP;
 	iph->check = 0;		//Set to 0 before calculating checksum
-	iph->saddr = inet_addr ( source_ip );	//Spoof the source ip address
+	iph->saddr = inet_addr ( sourceIp4 );	//Spoof the source ip address
 	iph->daddr = sin.sin_addr.s_addr;
 	
 	//Ip checksum
@@ -239,7 +317,7 @@ int main(int argc, char* argv[])
 	tcph->urg_ptr = 0;
 	
 	//Now the TCP checksum
-	psh.src = inet_addr( source_ip );
+	psh.src = inet_addr( sourceIp4 );
 	psh.dst = sin.sin_addr.s_addr;
 	psh.res = 0;
 	psh.protocol = IPPROTO_TCP;
@@ -262,7 +340,6 @@ int main(int argc, char* argv[])
 	bpf_u_int32 netaddr;            // network address configured at the input device
 	bpf_u_int32 mask;               // network mask of the input device
 	struct bpf_program fp;          // the compiled filter
-
 
 	// get IP address and mask of the sniffing interface
 	if (pcap_lookupnet(dev,&netaddr,&mask,errbuf) == -1)
@@ -296,7 +373,6 @@ int main(int argc, char* argv[])
 	    currentDstPort = tcpPortList[tcpCount];
 	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
 			errorMsg("ERROR: sendto() failed");
-
 	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1)
 	    	err(1,"pcap_loop() failed");
 	}
@@ -343,7 +419,6 @@ int main(int argc, char* argv[])
 
 	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1)
 	    	err(1,"pcap_loop() failed");
-
 	}
 
   	// close the capture device and deallocate resources
@@ -390,7 +465,6 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
     if (my_ip->ip_p == 6)
     {
     	my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
-
     	if (currentDstPort == ntohs(my_tcp->th_sport))
     	{
 	    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
