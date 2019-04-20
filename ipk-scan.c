@@ -273,9 +273,8 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	iph->ip6_plen = htons(sizeof(struct tcphdr));
 	iph->ip6_nxt = IPPROTO_TCP;
 	iph->ip6_hops = 255;
+	//value for taken flow from https://blog.apnic.net/2017/10/24/raw-sockets-ipv6/
 	iph->ip6_flow = htonl ((6 << 28) | (0 << 20) | 0);
-	//iph->ip6_flow = 6<<28;
-	//iph->ip6_vfc = htonl(6);
 	inet_pton(AF_INET6, sourceIp6, &iph->ip6_src);
 	inet_pton(AF_INET6, destinationAddress, &iph->ip6_dst);
 
@@ -356,10 +355,8 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	    alarm(3);
 
 	    currentDstPort = tcpPortList[tcpCount];
-	    //int a = 0;
-	    //int errno;
-	    //end_ipv6_ipproto_raw(packet, 60, s);
-	    if((sendto(s, packet, 60, 0, (struct sockaddr *)&sin, sizeof(sin))) < 0)
+
+	    if((sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct tcphdr), 0, (struct sockaddr *)&sin, sizeof(sin))) < 0)
 	    {
 			errorMsg("ERROR: sendto() failed");
 	    }
@@ -367,41 +364,56 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1)
 	    	err(1,"pcap_loop() failed");
 	}
-}
 
-/*int send_ipv6_ipproto_raw(const unsigned char *packet, size_t len, int sd)
-{
-	struct ip6_hdr *hdr;
-	struct sockaddr_in6 dest = { 0 };
-	//int sd, n;
-	int n;
+	iph->ip6_nxt = IPPROTO_UDP;
+	iph->ip6_plen = sizeof(struct udphdr);
+	struct udphdr *udph = (struct udphdr *) (packet + sizeof(struct ip6_hdr));
+	memset(udph, 0, PCKT_LEN - sizeof(struct ip6_hdr));
+	udph->uh_sport = htons (1234); 
+	udph->uh_ulen = htons(sizeof(struct udphdr));
 
-	//sd = -1;
-	n = -1;
+	psize = sizeof(struct pseudoHeaderV6) + sizeof(struct udphdr);
+	pseudoUdpPacket = malloc(psize);
+	
+	psh.len = htons(sizeof(struct udphdr));
+	psh.zeros = 0;
+	psh.next = IPPROTO_UDP;
+	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoHeaderV6));
 
-	if (len < sizeof(*hdr))
-		return -1;
+	// compile the filter
+	if (pcap_compile(handle,&fp,"icmp",0,netaddr) == -1)
+    	err(1,"pcap_compile() failed");
+  
+	// set the filter to the packet capture handle
+  	if (pcap_setfilter(handle,&fp) == -1)
+    	err(1,"pcap_setfilter() failed");
 
-	hdr = (struct ip6_hdr *) packet;
-	dest.sin6_family = AF_INET6;
-	memcpy(&dest.sin6_addr.s6_addr, &hdr->ip6_dst, sizeof(dest.sin6_addr.s6_addr));
-	dest.sin6_port = 80;
+	for (int i = 0; udpPortList[i] > 0; i++)
+	{
+		sin.sin6_port = htonl(udpPortList[i]);
+		udph->uh_dport = htons(udpPortList[i]);
+		udph->uh_sum = 0;
 
-	sd = socket(AF_INET6, SOCK_RAW, IPPROTO_RAW);
-	if (sd == -1) {
-		perror("socket");
+		memcpy(pseudoUdpPacket + sizeof(struct pseudoHeaderV6), udph, sizeof(struct udphdr));
+    	udph->uh_sum = csum((unsigned short*) pseudoUdpPacket, (sizeof(struct pseudoHeaderV6) + sizeof(struct udphdr)));
+
+    	signal(SIGALRM, signalalarmUdpHandler);   
+	    alarm(3);
+
+	   	currentDstPort = udpPortList[i];
+	    if(sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct udphdr), 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+			errorMsg("ERROR: sendto() failed");
+
+	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1)
+	    	err(1,"pcap_loop() failed");
 	}
 
-	n = sendto(sd, packet, len, 0, (struct sockaddr *) &dest, sizeof(dest));
-	if (n < 0)
-		errorMsg("sendmsg");
-
-
-	if (sd != -1)
-		close(sd);
-	printf("FUCKIND DOENOFEIAJ|A\n\n");
-	return n;
-}*/
+	// close the capture device and deallocate resources
+  	close(s);
+  	pcap_close(handle);
+  	free(pseudoUdpPacket);
+  	free(pseudoTcpPacket);
+}
 
 void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
 {
@@ -569,24 +581,51 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 {
 	struct ip *my_ip;
 	const struct icmp *my_icmp;
+	struct ether_header *eptr;      // pointer to the beginning of Ethernet header
+	struct ip6_hdr *my_ip6;
 	u_int size_ip;
+	eptr = (struct ether_header *) packet;
 
-	my_ip = (struct ip*) (packet+SIZE_ETHERNET);
-	size_ip = my_ip->ip_hl*4;
-	if (my_ip->ip_p == 1)
+	switch (ntohs(eptr->ether_type))
 	{
-		my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
-		if (my_icmp->icmp_code == 3)
-		{
-			if (currentDstPort > 999)
-	      		printf ("udp/%d\t", currentDstPort);
-	      	else
-	      		printf ("udp/%d\t\t", currentDstPort);
-	      	red();
-	      	printf("closed\n");
-	      	reset();
-	      	pcap_breakloop(handle);
-		}
+		case ETHERTYPE_IP:
+			my_ip = (struct ip*) (packet+SIZE_ETHERNET);
+			size_ip = my_ip->ip_hl*4;
+			if (my_ip->ip_p == 1)
+			{
+				my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
+				if (my_icmp->icmp_code == 3)
+				{
+					if (currentDstPort > 999)
+			      		printf ("udp/%d\t", currentDstPort);
+			      	else
+			      		printf ("udp/%d\t\t", currentDstPort);
+			      	red();
+			      	printf("closed\n");
+			      	reset();
+			      	pcap_breakloop(handle);
+				}
+			}
+			break;
+		case ETHERTYPE_IPV6:
+			my_ip6 = (struct ip6_hdr*) (packet+SIZE_ETHERNET);
+			size_ip = sizeof(struct ip6_hdr);
+			if (my_ip6->ip6_nxt == 1)
+			{
+				my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
+				if (my_icmp->icmp_code == 3)
+				{
+					if (currentDstPort > 999)
+			      		printf ("udp/%d\t", currentDstPort);
+			      	else
+			      		printf ("udp/%d\t\t", currentDstPort);
+			      	red();
+			      	printf("closed\n");
+			      	reset();
+			      	pcap_breakloop(handle);
+				}
+			}
+			break;
 	}
 }
 
@@ -594,42 +633,89 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 {
 	struct ip *my_ip;               // pointer to the beginning of IP header
 	const struct tcphdr *my_tcp;    // pointer to the beginning of TCP header
+	struct ether_header *eptr;      // pointer to the beginning of Ethernet header
+	struct ip6_hdr *my_ip6;
 	u_int size_ip;
+	eptr = (struct ether_header *) packet;
 
-    my_ip = (struct ip*) (packet+SIZE_ETHERNET);
-   	size_ip = my_ip->ip_hl*4;
-    if (my_ip->ip_p == 6)
-    {
-    	my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
-    	if (currentDstPort == ntohs(my_tcp->th_sport))
-    	{
-	    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
-	    	{
-	    		if (ntohs(my_tcp->th_sport) > 999)
-	      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
-	      		else
-	      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
-	      		green();
-	      		printf("open\n");
-	      		reset();
-	      		alarm(0);
-	      		pcap_breakloop(handle);
-	      	}
+	switch (ntohs(eptr->ether_type))
+	{
+		case ETHERTYPE_IP: 
+		    my_ip = (struct ip*) (packet+SIZE_ETHERNET);
+		   	size_ip = my_ip->ip_hl*4;
+		    if (my_ip->ip_p == 6)
+		    {
+		    	my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
+		    	if (currentDstPort == ntohs(my_tcp->th_sport))
+		    	{
+			    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
+			    	{
+			    		if (ntohs(my_tcp->th_sport) > 999)
+			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
+			      		else
+			      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+			      		green();
+			      		printf("open\n");
+			      		reset();
+			      		alarm(0);
+			      		pcap_breakloop(handle);
+			      	}
 
-	      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK))
-	      	{
-	      		if (ntohs(my_tcp->th_sport) > 999)
-	      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
-	      		else
-	      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
-	      		red();
-	      		printf("closed\n");
-	      		reset();
-	      		alarm(0);
-	      		pcap_breakloop(handle);
-	      	}
-      	}
-    }
+			      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK))
+			      	{
+			      		if (ntohs(my_tcp->th_sport) > 999)
+			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
+			      		else
+			      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+			      		red();
+			      		printf("closed\n");
+			      		reset();
+			      		alarm(0);
+			      		pcap_breakloop(handle);
+			      	}
+		      	}
+		    }
+		    break;
+
+		case ETHERTYPE_IPV6:
+			my_ip6 = (struct ip6_hdr*) (packet+SIZE_ETHERNET);
+			size_ip = sizeof(struct ip6_hdr);
+			if (my_ip6->ip6_nxt == 6)
+			{
+				my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
+				if (currentDstPort == ntohs(my_tcp->th_sport))
+		    	{
+			    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
+			    	{
+			    		if (ntohs(my_tcp->th_sport) > 999)
+			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
+			      		else
+			      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+			      		green();
+			      		printf("open\n");
+			      		reset();
+			      		alarm(0);
+			      		pcap_breakloop(handle);
+			      	}
+
+			      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK))
+			      	{
+			      		if (ntohs(my_tcp->th_sport) > 999)
+			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
+			      		else
+			      			printf ("tcp/%d\t\t", ntohs(my_tcp->th_sport));
+			      		red();
+			      		printf("closed\n");
+			      		reset();
+			      		alarm(0);
+			      		pcap_breakloop(handle);
+			      	}
+		      	}
+
+			}
+			break;
+
+	}
 }
 
 void signalalarmUdpHandler()
