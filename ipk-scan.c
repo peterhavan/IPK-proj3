@@ -125,6 +125,10 @@ int main(int argc, char* argv[])
         }
       	inet_ntop (res->ai_family, ptr, destinationAddress, 100);
       	res = res->ai_next;
+      	if (ipv4Flag)
+      	{
+      		break;
+      	}
     }
 
 	if (puFlag)
@@ -180,7 +184,7 @@ int main(int argc, char* argv[])
 		else
 			tcpPortList[0] = atoi(SYN);
 	}
-	
+
 	if (iFlag)
 		dev = interface;
 	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
@@ -224,15 +228,11 @@ int main(int argc, char* argv[])
             		struct sockaddr_in6 *in6 = (struct sockaddr_in6*) ifa_tmp->ifa_addr;
             		inet_ntop(AF_INET6, &in6->sin6_addr, sourceAddress, sizeof(sourceAddress));
             		strcpy(sourceIp6, sourceAddress);
-            		if (!strcmp(sourceIp6, destinationAddress))
-            		{
-            			strcpy(destinationAddress, sourceIp6);
-            			break;
-            		}
+            		break;
             	}
         	}
-        	printf("name = %s\n", ifa_tmp->ifa_name);
- 	      	printf("addr = %s\n", sourceAddress);
+        	//printf("name = %s\n", ifa_tmp->ifa_name);
+ 	      	//printf("addr = %s\n", sourceAddress);
     	}
     	ifa_tmp = ifa_tmp->ifa_next;
 	}
