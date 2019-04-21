@@ -417,6 +417,12 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 
 void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
 {
+	printf("*******************************************\n");
+	printf("DEALING WITH IPv4\n");
+	printf("\tsourceIp4 = %s\n", sourceIp4);
+	printf("\tdestinationAddress = %s\n", destinationAddress);
+	printf("*******************************************\n");
+
 	char errbuf[PCAP_ERRBUF_SIZE];
 	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
 	//zero out the packet buffer
