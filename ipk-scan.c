@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
         	case AF_INET:
         		ipv4Flag = true;
           		ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
-          		//break;
+          		break;
         	case AF_INET6:
         		ipv6Flag = true;
           		ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
