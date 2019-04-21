@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
         	case AF_INET:
         		ipv4Flag = true;
           		ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
-          		break;
+          		//break;
         	case AF_INET6:
         		ipv6Flag = true;
           		ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
       	inet_ntop (res->ai_family, ptr, destinationAddress, 100);
       	res = res->ai_next;
     }
-	
+
 	if (puFlag)
 	{
 		int index = 0;
@@ -214,7 +214,6 @@ int main(int argc, char* argv[])
             		strcpy(sourceIp4, sourceAddress);
             		//printf("dev = %s\t sourceAddress = %s\n", dev, sourceAddress);
             	}
-            
         	}
 
         	else 
@@ -225,11 +224,15 @@ int main(int argc, char* argv[])
             		struct sockaddr_in6 *in6 = (struct sockaddr_in6*) ifa_tmp->ifa_addr;
             		inet_ntop(AF_INET6, &in6->sin6_addr, sourceAddress, sizeof(sourceAddress));
             		strcpy(sourceIp6, sourceAddress);
-            		break;
+            		if (!strcmp(sourceIp6, destinationAddress))
+            		{
+            			strcpy(destinationAddress, sourceIp6);
+            			break;
+            		}
             	}
         	}
-//        	printf("name = %s\n", ifa_tmp->ifa_name);
-// 	      	printf("addr = %s\n", sourceAddress);
+        	printf("name = %s\n", ifa_tmp->ifa_name);
+ 	      	printf("addr = %s\n", sourceAddress);
     	}
     	ifa_tmp = ifa_tmp->ifa_next;
 	}
@@ -246,7 +249,15 @@ int main(int argc, char* argv[])
 //int send_ipv6_ipproto_raw(const unsigned char *packet, size_t len, int sd);
 
 void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
-{	
+{
+
+	printf("*******************************************\n");
+	printf("DEALING WITH IPv6\n");
+	printf("\tsourceIp6 = %s\n", sourceIp6);
+	printf("\tdestinationAddress = %s\n", destinationAddress);
+	printf("*******************************************\n");
+
+
 	char errbuf[PCAP_ERRBUF_SIZE];
 	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
 	//zero out the packet buffer
@@ -303,11 +314,11 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 		errorMsg("ERROR: socket() failed");
 
     // Inform the kernel do not fill up the headers' structure, we fabricated our own
-    /*if(setsockopt(s, IPPROTO_IPV6, IPV6_HDRINCL, val, sizeof(one)) < 0)
+    if(setsockopt(s, IPPROTO_IPV6, IPV6_HDRINCL, val, sizeof(one)) < 0)
     //if(setsockopt(s, IPPROTO_IPV6, IPV6_RECVPKTINFO, val, sizeof(one)) < 0)
     {
         errorMsg("ERROR: setsockopt() failed");
-    }*/
+    }
 
 	bpf_u_int32 netaddr;            // network address configured at the input device
 	bpf_u_int32 mask;               // network mask of the input device
@@ -334,7 +345,7 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
     for (; tcpPortList[tcpCount] > 0; tcpCount++)
     {
     	sin.sin6_port = htonl(tcpPortList[tcpCount]);
-		tcph->dest = htons (tcpPortList[tcpCount]);;
+		tcph->dest = htons(tcpPortList[tcpCount]);;
 
 		tcph->check = 0;
 		memcpy(pseudoTcpPacket + sizeof(struct pseudoHeaderV6), tcph, sizeof(struct tcphdr));
