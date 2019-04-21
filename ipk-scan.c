@@ -6,6 +6,9 @@
  *   ipk-scan.c   *
 ***************************/
 
+/*********************************************************
+* Inspired by exmaples IPK/ISA course files from FIT VUT *
+**********************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,8 +51,7 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 int main(int argc, char* argv[])
 {
-	/* setting up variables
-	 * making sure every char* is set to '\0' */
+	/* setting up variables */
 	char c;
 	bool puFlag = false, ptFlag = false, iFlag = false, ipv6Flag = false, ipv4Flag = false;
 	char *interface, *SYN, *UDP, *dev;
@@ -60,7 +62,11 @@ int main(int argc, char* argv[])
 	/* checking arguments */
 	if (argc < 2)
 		errorMsg("ERROR: Invalid options");
-
+	/*****************************************
+	* Parsing arguments, getopt() is not 	*
+	* sufficient, arguments -pu and -pt 	*
+	* are long                              *
+	*****************************************/
 	while (1) 
 	{
 		int option_index = 0;
@@ -94,18 +100,22 @@ int main(int argc, char* argv[])
 	    		errorMsg("ERROR: Invalid options");
 	    }
 	}
+	/* no ports were specified */
+	if (!(puFlag | ptFlag))
+		errorMsg("ERROR: invalid options");
 
 	/* getting server adress */
-	/*****************************************************************************************/
+	/* inspired by https://gist.github.com/jirihnidek/bf7a2363e480491da72301b228b35d5d by jirihnidek */
+	/******************************************************************
+	* gethostbyname() cant deal with IPv6, we need to use getaddrinfo *
+	******************************************************************/
   	struct addrinfo hints, *res;
   	int errcode;
   	void *ptr;
-
   	memset (&hints, 0, sizeof (hints));
   	hints.ai_family = PF_UNSPEC;
   	hints.ai_socktype = SOCK_STREAM;
   	hints.ai_flags |= AI_CANONNAME;
-
   	errcode = getaddrinfo (argv[optind], NULL, &hints, &res);
   	if (errcode != 0)
   		errorMsg("ERROR: gettaddrinfo()");
@@ -114,23 +124,24 @@ int main(int argc, char* argv[])
     	inet_ntop (res->ai_family, res->ai_addr->sa_data, destinationAddress, 100);
       	switch (res->ai_family)
         {
-        	case AF_INET:
+        	case AF_INET: //found IPv4 address
         		ipv4Flag = true;
           		ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
           		break;
-        	case AF_INET6:
+        	case AF_INET6: //found IPv6 address
         		ipv6Flag = true;
           		ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
           		break;
         }
       	inet_ntop (res->ai_family, ptr, destinationAddress, 100);
       	res = res->ai_next;
-      	if (ipv4Flag)
+      	if (ipv4Flag) // IPv4 is prefered in case argument was not IP address but hostname
       	{
       		break;
       	}
     }
 
+    // parsing through UDP port argument
 	if (puFlag)
 	{
 		int index = 0;
@@ -158,6 +169,7 @@ int main(int argc, char* argv[])
 			udpPortList[0] = atoi(UDP);
 	}
 
+	// parsing through TCP port argument
 	if (ptFlag)
 	{
 		int index = 0;
@@ -185,23 +197,18 @@ int main(int argc, char* argv[])
 			tcpPortList[0] = atoi(SYN);
 	}
 
+	// setting up device
 	if (iFlag)
 		dev = interface;
 	else if ((dev = pcap_lookupdev(errbuf)) == NULL)
-    	err(1,"Can't open input device");
+    	errorMsg("ERROR: pcap_lookupdev() failed");
 
     //getting address on the interface, inspired by
     //https://stackoverflow.com/questions/33125710/how-to-get-ipv6-interface-address-using-getifaddr-function
 	struct ifaddrs *ifa, *ifa_tmp;
 	char sourceAddress[50];
-
 	if (getifaddrs(&ifa) == -1) 
-	{
-	    perror("getifaddrs failed");
-	    exit(1);
-	}
-
-	//printf("dev = %s\n", dev);
+	    errorMsg("ERROR: getifaddrs() failed");
 	ifa_tmp = ifa;
 	while (ifa_tmp) 
 	{
@@ -216,12 +223,11 @@ int main(int argc, char* argv[])
             		struct sockaddr_in *in = (struct sockaddr_in*) ifa_tmp->ifa_addr;
             		inet_ntop(AF_INET, &in->sin_addr, sourceAddress, sizeof(sourceAddress));
             		strcpy(sourceIp4, sourceAddress);
-            		//printf("dev = %s\t sourceAddress = %s\n", dev, sourceAddress);
             	}
         	}
 
         	else 
-        	{ // AF_INET6
+        	{
             	// create IPv6 string
             	if (!strcmp(ifa_tmp->ifa_name, dev))
             	{
@@ -231,33 +237,20 @@ int main(int argc, char* argv[])
             		break;
             	}
         	}
-        	//printf("name = %s\n", ifa_tmp->ifa_name);
- 	      	//printf("addr = %s\n", sourceAddress);
     	}
     	ifa_tmp = ifa_tmp->ifa_next;
 	}
-	if (ipv4Flag)
+
+	if (ipv4Flag) // if IPv4 destinationAddress was found, we'll use that
 		sendV4Packet(sourceIp4, destinationAddress, udpPortList, tcpPortList, dev);
 	else
 		sendV6Packet(sourceIp6, destinationAddress, udpPortList, tcpPortList, dev);
-
-
-    /****************************************************************/
-
     return 0;
 }
-//int send_ipv6_ipproto_raw(const unsigned char *packet, size_t len, int sd);
 
+/* Sending IPv6 packet */
 void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
 {
-
-	printf("*******************************************\n");
-	printf("DEALING WITH IPv6\n");
-	printf("\tsourceIp6 = %s\n", sourceIp6);
-	printf("\tdestinationAddress = %s\n", destinationAddress);
-	printf("*******************************************\n");
-
-
 	char errbuf[PCAP_ERRBUF_SIZE];
 	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
 	//zero out the packet buffer
@@ -270,29 +263,30 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 	inet_pton(AF_INET6, destinationAddress, &sin.sin6_addr);
 	sin.sin6_family = AF_INET6;
 
+	// create IPv6 header
 	iph->ip6_plen = htons(sizeof(struct tcphdr));
 	iph->ip6_nxt = IPPROTO_TCP;
 	iph->ip6_hops = 255;
-	//value for taken flow from https://blog.apnic.net/2017/10/24/raw-sockets-ipv6/
-	iph->ip6_flow = htonl ((6 << 28) | (0 << 20) | 0);
+	iph->ip6_flow = htonl ((6 << 28) | (0 << 20) | 0); //value for taken flow from https://blog.apnic.net/2017/10/24/raw-sockets-ipv6/
 	inet_pton(AF_INET6, sourceIp6, &iph->ip6_src);
 	inet_pton(AF_INET6, destinationAddress, &iph->ip6_dst);
 
-	//TCP Header
+	// create TCP header
 	tcph->source = htons (1234);
 	tcph->seq = 0;
 	tcph->ack_seq = 0;
 	tcph->doff = 5;	//tcp header size
 	tcph->fin=0;
-	tcph->syn=1;
+	tcph->syn=1; //for SYN scanning
 	tcph->rst=0;
 	tcph->psh=0;
 	tcph->ack=0;
 	tcph->urg=0;
-	tcph->window = htons (5840);	/* maximum allowed window size */
-	tcph->check = 0;	//leave checksum 0 now, filled later by pseudo header
+	tcph->window = htons (BUFSIZE); 
+	tcph->check = 0; // cheksum filled later
 	tcph->urg_ptr = 0;
 
+	// create pseudo header
 	inet_pton(AF_INET6, sourceIp6, &psh.src);
 	inet_pton(AF_INET6, destinationAddress, &psh.dst);
 	psh.len = htons(sizeof(struct tcphdr));
@@ -306,19 +300,14 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 
 	int one = 1;
 	const int *val = &one;
-
 	//Create a raw socket
 	//int s = socket (AF_INET6, SOCK_RAW, IPPROTO_TCP);
 	int s = socket(AF_INET6, SOCK_RAW, IPPROTO_RAW);
 	if (s == -1)
 		errorMsg("ERROR: socket() failed");
 
-    // Inform the kernel do not fill up the headers' structure, we fabricated our own
     if(setsockopt(s, IPPROTO_IPV6, IPV6_HDRINCL, val, sizeof(one)) < 0)
-    //if(setsockopt(s, IPPROTO_IPV6, IPV6_RECVPKTINFO, val, sizeof(one)) < 0)
-    {
-        errorMsg("ERROR: setsockopt() failed");
-    }
+        errorMsg("ERROR: setsockopt() failed");   
 
 	bpf_u_int32 netaddr;            // network address configured at the input device
 	bpf_u_int32 mask;               // network mask of the input device
@@ -342,39 +331,42 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 
     printf("PORT\t\tSTATE\n");
 
+    // loop through all TCP ports
     for (; tcpPortList[tcpCount] > 0; tcpCount++)
     {
+    	// change ports
     	sin.sin6_port = htonl(tcpPortList[tcpCount]);
 		tcph->dest = htons(tcpPortList[tcpCount]);;
-
+		// calculate cheksum again based on ports
 		tcph->check = 0;
 		memcpy(pseudoTcpPacket + sizeof(struct pseudoHeaderV6), tcph, sizeof(struct tcphdr));
     	tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoHeaderV6) + sizeof(struct tcphdr)));
-
+    	// set alarm, used as timeout
 	    signal(SIGALRM, signalalarmTcpHandler);   
 	    alarm(3);
 
-	    currentDstPort = tcpPortList[tcpCount];
+	    currentDstPort = tcpPortList[tcpCount]; //global variable, used in handle
 
-	    if((sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct tcphdr), 0, (struct sockaddr *)&sin, sizeof(sin))) < 0)
-	    {
+	    if((sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct tcphdr), 0, (struct sockaddr *)&sin, sizeof(sin))) < 0) //send packet
 			errorMsg("ERROR: sendto() failed");
-	    }
 
-	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1)
+	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1) //accept and analyze packet
 	    	err(1,"pcap_loop() failed");
 	}
 
+	// change IP header for UDP
 	iph->ip6_nxt = IPPROTO_UDP;
 	iph->ip6_plen = sizeof(struct udphdr);
+	// create UDP header
 	struct udphdr *udph = (struct udphdr *) (packet + sizeof(struct ip6_hdr));
 	memset(udph, 0, PCKT_LEN - sizeof(struct ip6_hdr));
 	udph->uh_sport = htons (1234); 
 	udph->uh_ulen = htons(sizeof(struct udphdr));
 
+	// create UDP pseudo packet
 	psize = sizeof(struct pseudoHeaderV6) + sizeof(struct udphdr);
 	pseudoUdpPacket = malloc(psize);
-	
+	// we can reuse pseudo header from TCP
 	psh.len = htons(sizeof(struct udphdr));
 	psh.zeros = 0;
 	psh.next = IPPROTO_UDP;
@@ -390,21 +382,22 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 
 	for (int i = 0; udpPortList[i] > 0; i++)
 	{
+		// change ports ... sin.sin6_port must be htonl()
 		sin.sin6_port = htonl(udpPortList[i]);
 		udph->uh_dport = htons(udpPortList[i]);
 		udph->uh_sum = 0;
-
+		// calculate checksum after changing ports
 		memcpy(pseudoUdpPacket + sizeof(struct pseudoHeaderV6), udph, sizeof(struct udphdr));
     	udph->uh_sum = csum((unsigned short*) pseudoUdpPacket, (sizeof(struct pseudoHeaderV6) + sizeof(struct udphdr)));
-
+    	// setting up signal, used as timeout
     	signal(SIGALRM, signalalarmUdpHandler);   
 	    alarm(3);
+	   	currentDstPort = udpPortList[i]; //global variable, used in handle
 
-	   	currentDstPort = udpPortList[i];
-	    if(sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct udphdr), 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+	    if(sendto(s, packet, sizeof(struct ip6_hdr) + sizeof(struct udphdr), 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) // sending packet
 			errorMsg("ERROR: sendto() failed");
 
-	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1)
+	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1) //accepting and analyzing packet
 	    	err(1,"pcap_loop() failed");
 	}
 
@@ -417,11 +410,6 @@ void sendV6Packet(char *sourceIp6, char *destinationAddress, int *udpPortList, i
 
 void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, int *tcpPortList, char *dev)
 {
-	printf("*******************************************\n");
-	printf("DEALING WITH IPv4\n");
-	printf("\tsourceIp4 = %s\n", sourceIp4);
-	printf("\tdestinationAddress = %s\n", destinationAddress);
-	printf("*******************************************\n");
 
 	char errbuf[PCAP_ERRBUF_SIZE];
 	char packet[PCKT_LEN], *pseudoTcpPacket, *pseudoUdpPacket;
@@ -435,23 +423,21 @@ void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, i
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = inet_addr(destinationAddress);
 	
-	//Fill in the IP Header
+	// create IPv4 header
 	iph->ihl = 5;
 	iph->version = 4;
 	iph->tos = 0;
 	iph->tot_len = sizeof (struct iphdr) + sizeof (struct tcphdr);
-	iph->id = htonl (424242);	//Id of this packet
+	iph->id = htonl (424242);
 	iph->frag_off = 0;
 	iph->ttl = 255;
 	iph->protocol = IPPROTO_TCP;
-	iph->check = 0;		//Set to 0 before calculating checksum
-	iph->saddr = inet_addr ( sourceIp4 );	//Spoof the source ip address
+	iph->check = 0; // set to zero before calculation
+	iph->saddr = inet_addr ( sourceIp4 );
 	iph->daddr = sin.sin_addr.s_addr;
-	
-	//Ip checksum
 	iph->check = csum ((unsigned short *) packet, iph->tot_len);
 	
-	//TCP Header
+	// create TCP header
 	tcph->source = htons (1234);
 	tcph->seq = 0;
 	tcph->ack_seq = 0;
@@ -462,11 +448,11 @@ void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, i
 	tcph->psh=0;
 	tcph->ack=0;
 	tcph->urg=0;
-	tcph->window = htons (5840);	/* maximum allowed window size */
-	tcph->check = 0;	//leave checksum 0 now, filled later by pseudo header
+	tcph->window = htons (PCKT_LEN);
+	tcph->check = 0; // set to zero before calculation
 	tcph->urg_ptr = 0;
 	
-	//Now the TCP checksum
+	// create pseudo header
 	psh.src = inet_addr( sourceIp4 );
 	psh.dst = sin.sin_addr.s_addr;
 	psh.res = 0;
@@ -513,25 +499,29 @@ void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, i
     	err(1,"pcap_setfilter() failed");
 
     printf("PORT\t\tSTATE\n");
+    /* loop through TCP ports from the arguments */
     for (; tcpPortList[tcpCount] > 0; tcpCount++)
     {
+    	/* change ports */
     	sin.sin_port = htons(tcpPortList[tcpCount]);
 		tcph->dest = htons (tcpPortList[tcpCount]);
-
+		/* calculate checksum after changing ports */
 		tcph->check = 0;
 		memcpy(pseudoTcpPacket + sizeof(struct pseudoHeader), tcph ,sizeof(struct tcphdr));
     	tcph->check = csum((unsigned short*) pseudoTcpPacket, (sizeof(struct pseudoHeader) + sizeof(struct tcphdr)));
 
+    	// setting alarm, used as timeout
 	    signal(SIGALRM, signalalarmTcpHandler);   
 	    alarm(3);
+	    currentDstPort = tcpPortList[tcpCount]; //global variable, used in the handler
 
-	    currentDstPort = tcpPortList[tcpCount];
-	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) //send packet
 			errorMsg("ERROR: sendto() failed");
-	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1)
+	  	if (pcap_loop(handle, -1, pcapTcpHandler, NULL) == -1) //accept and analyze packets
 	    	err(1,"pcap_loop() failed");
 	}
 
+	/* change IP header for UDP values */
 	iph->protocol = IPPROTO_UDP;
 	iph->tot_len = sizeof (struct iphdr) + sizeof(struct udphdr);
 	iph->check = csum ((unsigned short *) packet, iph->tot_len);
@@ -540,9 +530,10 @@ void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, i
 	udph->uh_sport = htons (1234); 
 	udph->uh_ulen = htons(sizeof(struct udphdr));
 
+	/* create pseudo packet for UDP */
+	/* we can reuse pseudo TCP header though with a few changed values */
 	psize = sizeof(struct pseudoHeader) + sizeof(struct udphdr);
 	pseudoUdpPacket = malloc(psize);
-	
 	psh.protocol = IPPROTO_UDP;
 	psh.tcpLen = htons(sizeof(struct udphdr));
 	memcpy(pseudoUdpPacket , (char*) &psh , sizeof (struct pseudoHeader));
@@ -555,23 +546,25 @@ void sendV4Packet(char *sourceIp4, char *destinationAddress, int *udpPortList, i
   	if (pcap_setfilter(handle,&fp) == -1)
     	err(1,"pcap_setfilter() failed");
 
+    /* loop through all UDP ports from arguments */
 	for (int i = 0; udpPortList[i] > 0; i++)
 	{
+		/* fix ports and calculate csum for new values */
 		sin.sin_port = htons(udpPortList[i]);
 		udph->uh_dport = htons(udpPortList[i]);
 		udph->uh_sum = 0;
-
 		memcpy(pseudoUdpPacket + sizeof(struct pseudoHeader), udph, sizeof(struct udphdr));
     	udph->uh_sum = csum((unsigned short*) pseudoUdpPacket, (sizeof(struct pseudoHeader) + sizeof(struct udphdr)));
 
+    	/* set alarm, used as timeout */
     	signal(SIGALRM, signalalarmUdpHandler);   
 	    alarm(3);
+	   	currentDstPort = udpPortList[i]; //global variable, for usage in handler
 
-	   	currentDstPort = udpPortList[i];
-	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+	    if(sendto(s, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) //send packet
 			errorMsg("ERROR: sendto() failed");
 
-	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1)
+	  	if (pcap_loop(handle, -1, pcapUdpHandler, NULL) == -1) //analyze incoming packets
 	    	err(1,"pcap_loop() failed");
 	}
 
@@ -594,16 +587,16 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 	switch (ntohs(eptr->ether_type))
 	{
-		case ETHERTYPE_IP:
+		case ETHERTYPE_IP: //IPv4
 			my_ip = (struct ip*) (packet+SIZE_ETHERNET);
 			size_ip = my_ip->ip_hl*4;
-			if (my_ip->ip_p == 1)
+			if (my_ip->ip_p == 1) //UDP
 			{
 				my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
-				if (my_icmp->icmp_code == 3)
+				if (my_icmp->icmp_code == 3) // port unreachable ICMP, closed
 				{
 					if (currentDstPort > 999)
-			      		printf ("udp/%d\t", currentDstPort);
+			      		printf ("udp/%d\t", currentDstPort); 
 			      	else
 			      		printf ("udp/%d\t\t", currentDstPort);
 			      	red();
@@ -613,13 +606,13 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 				}
 			}
 			break;
-		case ETHERTYPE_IPV6:
+		case ETHERTYPE_IPV6: //IPv6
 			my_ip6 = (struct ip6_hdr*) (packet+SIZE_ETHERNET);
 			size_ip = sizeof(struct ip6_hdr);
-			if (my_ip6->ip6_nxt == 1)
+			if (my_ip6->ip6_nxt == 1) //UDP
 			{
 				my_icmp = (struct icmp*) (packet+SIZE_ETHERNET+size_ip);
-				if (my_icmp->icmp_code == 3)
+				if (my_icmp->icmp_code == 3) // port unreachable ICMP, closed
 				{
 					if (currentDstPort > 999)
 			      		printf ("udp/%d\t", currentDstPort);
@@ -635,6 +628,8 @@ void pcapUdpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	}
 }
 
+/* fuction for pcap_loop, accepting and analyzing TCP packets 
+ * inspired by examples from ISA */
 void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
 	struct ip *my_ip;               // pointer to the beginning of IP header
@@ -644,17 +639,17 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	u_int size_ip;
 	eptr = (struct ether_header *) packet;
 
-	switch (ntohs(eptr->ether_type))
+	switch (ntohs(eptr->ether_type)) //determine whether the packet is IPv4 or IPv6
 	{
-		case ETHERTYPE_IP: 
+		case ETHERTYPE_IP: //IPv4
 		    my_ip = (struct ip*) (packet+SIZE_ETHERNET);
 		   	size_ip = my_ip->ip_hl*4;
-		    if (my_ip->ip_p == 6)
+		    if (my_ip->ip_p == 6) // TCP
 		    {
 		    	my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
-		    	if (currentDstPort == ntohs(my_tcp->th_sport))
+		    	if (currentDstPort == ntohs(my_tcp->th_sport)) //coming from correct port
 		    	{
-			    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
+			    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK)) // OPEN, ACK and SYN flags are set
 			    	{
 			    		if (ntohs(my_tcp->th_sport) > 999)
 			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
@@ -667,7 +662,7 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 			      		pcap_breakloop(handle);
 			      	}
 
-			      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK))
+			      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK)) // CLOSED, RST flag is set
 			      	{
 			      		if (ntohs(my_tcp->th_sport) > 999)
 			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
@@ -683,15 +678,15 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 		    }
 		    break;
 
-		case ETHERTYPE_IPV6:
+		case ETHERTYPE_IPV6: //IPv6
 			my_ip6 = (struct ip6_hdr*) (packet+SIZE_ETHERNET);
 			size_ip = sizeof(struct ip6_hdr);
-			if (my_ip6->ip6_nxt == 6)
+			if (my_ip6->ip6_nxt == 6) //TCP
 			{
 				my_tcp = (struct tcphdr *) (packet+SIZE_ETHERNET+size_ip);
 				if (currentDstPort == ntohs(my_tcp->th_sport))
 		    	{
-			    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK))
+			    	if ((my_tcp->th_flags & TH_SYN) && (my_tcp->th_flags & TH_ACK)) // OPEN, SYN and ACK flags are set
 			    	{
 			    		if (ntohs(my_tcp->th_sport) > 999)
 			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
@@ -704,7 +699,7 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 			      		pcap_breakloop(handle);
 			      	}
 
-			      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK))
+			      	else if ((my_tcp->th_flags & TH_RST) && (my_tcp->th_flags & TH_ACK)) // CLOSED, RST flag is set
 			      	{
 			      		if (ntohs(my_tcp->th_sport) > 999)
 			      			printf ("tcp/%d\t", ntohs(my_tcp->th_sport));
@@ -724,6 +719,7 @@ void pcapTcpHandler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	}
 }
 
+/* timeout for UDP */
 void signalalarmUdpHandler()
 {
 	if (currentDstPort > 999)
@@ -736,10 +732,11 @@ void signalalarmUdpHandler()
 	pcap_breakloop(handle);
 }
 
+/* timeout for TCP */
 void signalalarmTcpHandler()
 {
 	static bool repeat = false;
-	if (repeat)
+	if (repeat) // resend request to make sure
 	{
 		if (ntohs(currentDstPort) > 999)
 	    	printf ("tcp/%d\t\t", currentDstPort);
@@ -763,6 +760,7 @@ void errorMsg(char *msg)
 	exit(1);
 }
 
+/* adding some colors for nice output */
 void red() {
   printf("\033[1;31m");
 }
